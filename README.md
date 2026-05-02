@@ -140,7 +140,7 @@ BepisLoader/
 ├── BepisLogo.png
 ├── build_app.sh
 ├── inject_icon.sh
-└── Sources/BepInExMacClient/
+└── Sources/BepisLoader/
     ├── main.swift                     # Entry point
     ├── AppDelegate.swift              # Window setup
     ├── Models.swift                   # Bottle, GameInstall, Mod types
