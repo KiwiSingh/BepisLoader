@@ -421,7 +421,6 @@ class GameDetailViewController: NSViewController {
         }
     }
 
-    @objc private func launchClicked() { }
 
     @objc private func addModClicked() {
         guard let game = game else { return }

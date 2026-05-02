@@ -8,19 +8,19 @@ import Foundation
 enum CompatibilityLayer: String, CaseIterable, Codable {
     case crossOver        = "CrossOver"
     case crossOverPreview = "CrossOver Preview"
-    case gameHub          = "GameHub"
+    case gameMac          = "GameMac"
     case wine             = "Wine (standalone)"
     case wineskin         = "Wineskin"
     case porting          = "Porting Kit"
     case whisky           = "Whisky"
-    case other            = "Other (Steam/GameMac)"
+    case other            = "Other"
 
     /// Bundle identifiers used to locate running instances
     var bundleIdentifiers: [String] {
         switch self {
         case .crossOver:        return ["com.codeweavers.CrossOver"]
         case .crossOverPreview: return ["com.codeweavers.CrossOver-Preview", "com.codeweavers.CrossOverPreview"]
-        case .gameHub:          return ["com.tkashkin.gamehub", "io.github.tkashkin.gamehub"]
+        case .gameMac:          return ["com.gamemac.www"]
         case .wine:             return []   // detected by process name
         case .wineskin:         return ["com.wineskin.wineskinserver"]
         case .porting:          return ["com.paulthe.portingkit"]
@@ -33,7 +33,7 @@ enum CompatibilityLayer: String, CaseIterable, Codable {
     var wineProcessNames: [String] {
         switch self {
         case .crossOver, .crossOverPreview: return ["wine64", "wine", "wineloader", "wineserver"]
-        case .gameHub:                      return ["wine64", "wine", "wineserver"]
+        case .gameMac:                      return ["wine64", "wine", "wineserver"]
         case .wine:                         return ["wine64", "wine", "wineserver"]
         case .wineskin:                     return ["wineskin", "wine64", "wine"]
         case .porting:                      return ["wine64", "wine"]
@@ -50,13 +50,19 @@ struct Bottle: Identifiable, Hashable, Codable {
     let path: URL             // path to the C: drive root or bottle directory
     let layer: CompatibilityLayer
     var winePID: pid_t?       // PID of wineserver managing this bottle, if running
+    /// Extra host-side paths the scanner wants findGames() to search.
+    /// Used by GameMac to carry game_path (which may be on an external drive)
+    /// into the game-finding phase without needing dosdevices symlink resolution.
+    var extraSearchPaths: [URL]
 
-    init(name: String, path: URL, layer: CompatibilityLayer, winePID: pid_t? = nil) {
-        self.id      = UUID()
-        self.name    = name
-        self.path    = path
-        self.layer   = layer
-        self.winePID = winePID
+    init(name: String, path: URL, layer: CompatibilityLayer,
+         winePID: pid_t? = nil, extraSearchPaths: [URL] = []) {
+        self.id               = UUID()
+        self.name             = name
+        self.path             = path
+        self.layer            = layer
+        self.winePID          = winePID
+        self.extraSearchPaths = extraSearchPaths
     }
 
     /// Best guess at the Windows drive C root

@@ -28,7 +28,7 @@ class BottleScanner {
     func scan(layer: CompatibilityLayer) -> [Bottle] {
         switch layer {
         case .crossOver, .crossOverPreview: return scanCrossOver(layer: layer)
-        case .gameHub:                      return scanGameHub()
+        case .gameMac:                      return scanGameMac()
         case .wine:                         return scanStandaloneWine()
         case .wineskin:                     return scanWineskin()
         case .porting:                      return scanPortingKit()
@@ -71,22 +71,9 @@ class BottleScanner {
         return bottles
     }
 
-    // ── GameHub ────────────────────────────────
+    // ── GameMac — see scanGameMac() below ─────────────────────────────────────
 
-    private func scanGameHub() -> [Bottle] {
-        // GameHub stores compatibility data in a few spots; bottles usually in ~/Games/GameHub
-        let candidates: [URL] = [
-            homeDir().appendingPathComponent("Games/GameHub"),
-            homeDir().appendingPathComponent("Library/Application Support/GameHub/Games"),
-        ]
-        var bottles: [Bottle] = []
-        for dir in candidates {
-            bottles.append(contentsOf: bottlesIn(directory: dir, layer: .gameHub))
-        }
-        return bottles
-    }
-
-    // ── Standalone Wine ────────────────────────
+        // ── Standalone Wine ────────────────────────
 
     private func scanStandaloneWine() -> [Bottle] {
         // ~/.wine is the default prefix; also check WINEPREFIX env
@@ -134,22 +121,63 @@ class BottleScanner {
 
     private func scanOtherLocations() -> [Bottle] {
         var bottles: [Bottle] = []
-        
-        // 1. Check for GameMac (com.gamemac.www) locations
-        let gameMacRoots = [
-            homeDir().appendingPathComponent("Library/Application Support/com.gamemac.www/wine-engine/containers/virtual_containers"),
-            homeDir().appendingPathComponent("Library/Application Support/com.gamemac.www/wine-engine/containers/base_containers")
-        ]
-        for root in gameMacRoots {
-            bottles.append(contentsOf: bottlesIn(directory: root, layer: .other))
-        }
-        
-        // 2. Check for Whisky-managed Steam bottles (sometimes named differently)
-        let whiskySteam = homeDir().appendingPathComponent("Library/Application Support/Whisky/Bottles/Steam")
+
+        // ── Whisky-managed Steam bottles (alternate path) ─────────────────────
+        let whiskySteam = homeDir()
+            .appendingPathComponent("Library/Application Support/Whisky/Bottles/Steam")
         if isWineBottle(whiskySteam) {
             bottles.append(Bottle(name: "Steam (Whisky)", path: whiskySteam, layer: .other))
         }
-        
+
+        return bottles
+    }
+
+    // ── GameMac ────────────────────────────────────────────────────────────────
+
+    private func scanGameMac() -> [Bottle] {
+        let gameMacSupport = homeDir()
+            .appendingPathComponent("Library/Application Support/com.gamemac.www")
+
+        let storeURL = gameMacSupport
+            .appendingPathComponent("gamehub/game_container_store.json")
+        let containersRoot = gameMacSupport
+            .appendingPathComponent("wine-engine/containers/virtual_containers")
+
+        guard fm.fileExists(atPath: storeURL.path),
+              let data = try? Data(contentsOf: storeURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let bindings = json["bindings"] as? [[String: Any]]
+        else {
+            // JSON not found or unreadable — fall back to blind directory scan
+            // so at least numbered containers show up rather than nothing.
+            return bottlesIn(directory: containersRoot, layer: .gameMac)
+        }
+
+        var bottles: [Bottle] = []
+        for binding in bindings {
+            guard
+                let gameName   = binding["game_name"]           as? String,
+                let containerID = binding["virtual_container_id"] as? String
+            else { continue }
+
+            // The Wine prefix is the virtual container directory
+            let prefixURL = containersRoot.appendingPathComponent(containerID)
+            guard isWineBottle(prefixURL) else { continue }
+
+            // game_path is where the game files live — stash it so findGames
+            // can search there directly even if it's on an external drive.
+            let gamePath = (binding["game_path"] as? String).map {
+                URL(fileURLWithPath: $0)
+            }
+
+            var bottle = Bottle(name: gameName, path: prefixURL, layer: .gameMac)
+            // Carry the external game path as an extra search root so that
+            // findGames() picks up the exe without relying on dosdevices symlinks.
+            if let gp = gamePath, fm.fileExists(atPath: gp.path) {
+                bottle.extraSearchPaths = [gp]
+            }
+            bottles.append(bottle)
+        }
         return bottles
     }
 
@@ -167,23 +195,53 @@ class BottleScanner {
             driveC,   // some games install at root
         ]
 
-        // Also check other mapped drives in dosdevices (for external SSDs)
+        // For GameMac bottles, the game exe lives at game_path (already in
+        // extraSearchPaths). The Wine prefix is a separate virtual container, so
+        // drive_c doesn't contain the game files. We also walk dosdevices as a
+        // fallback in case GameMac symlinks the game path as a drive letter.
+        if bottle.layer == .gameMac {
+            let installDir = bottle.path
+                .deletingLastPathComponent()  // compat/
+                .deletingLastPathComponent()  // _gamehub/
+                .deletingLastPathComponent()  // <installDir>
+            searchRoots.insert(installDir, at: 0)
+        }
+
+        // Also check other mapped drives in dosdevices (for external SSDs and
+        // GameMac/GameHub symlinked game paths)
         let dosdevices = bottle.path.appendingPathComponent("dosdevices")
         if let drives = try? fm.contentsOfDirectory(at: dosdevices, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) {
             for drive in drives {
                 let name = drive.lastPathComponent.lowercased()
                 // Skip c: (already handled) and z: (usually maps to macOS root /)
-                // Also only process standard drive letters (e.g. d:, e:)
                 if name.count == 2 && name.hasSuffix(":") && name != "c:" && name != "z:" {
-                    searchRoots.append(drive.appendingPathComponent("Program Files"))
-                    searchRoots.append(drive.appendingPathComponent("Program Files (x86)"))
-                    searchRoots.append(drive.appendingPathComponent("Games"))
-                    searchRoots.append(drive) // some games install at root of external drive
+                    // Resolve the symlink so we scan the real host path
+                    if let dest = try? fm.destinationOfSymbolicLink(atPath: drive.path) {
+                        let resolved = dest.hasPrefix("/")
+                            ? URL(fileURLWithPath: dest)
+                            : URL(fileURLWithPath: dest, relativeTo: drive.deletingLastPathComponent()).standardized
+                        if fm.fileExists(atPath: resolved.path) {
+                            searchRoots.append(resolved)
+                        }
+                    } else {
+                        searchRoots.append(drive)
+                    }
                 }
             }
         }
 
-        for root in searchRoots where fm.fileExists(atPath: root.path) {
+        // Extra search paths set by the scanner (e.g. GameMac's game_path pointing
+        // to an external drive). Prepend them so they take priority over drive_c.
+        searchRoots = bottle.extraSearchPaths + searchRoots
+
+        // Deduplicate by canonical path so we never scan the same directory twice
+        var seen = Set<String>()
+        let uniqueRoots = searchRoots.filter { url in
+            let canonical = url.standardized.path
+            return seen.insert(canonical).inserted
+        }
+
+        for root in uniqueRoots where fm.fileExists(atPath: root.path) {
             enumerateForUnity(root: root, bottle: bottle, results: &games)
         }
         return games
