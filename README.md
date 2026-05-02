@@ -54,7 +54,7 @@ The resulting `BepisLoader.app` will be in `.build/release/`.
 ## 📋 Technical Details
 
 - **Language**: Swift 5.9 (Native macOS)
-- **Minimum OS**: macOS 13.0 Ventura
+- **Minimum OS**: macOS 13.0 Ventura (macOS 26 Tahoe for GameHub users)
 - **Compatibility**: Supports both Intel and Apple Silicon (via Rosetta 2 for the games themselves).
 - **Injection Method**: Uses `winhttp.dll` + `version.dll` proxying via `WINEDLLOVERRIDES`.
 - **GameHub Injection**: Patches `game-settings/<hash>.json` at `settings.environment`. Uses absolute `Z:\` paths for all Doorstop variables to support games on external volumes.
