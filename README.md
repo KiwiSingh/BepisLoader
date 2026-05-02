@@ -89,7 +89,7 @@ Created by **Kiwi Singh** and the community. Special thanks to the BepInEx team 
 
 ## ☕ Support the Project
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kiwisingh)\
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kiwisingh)
 
 ------------------------------------------------------------------------
 
