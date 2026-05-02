@@ -158,6 +158,6 @@ BepisLoader/
 
 ## 🤝 Credits
 
-Created by **KiwiSingh** and the community. Special thanks to the BepInEx team for the legendary modding framework.
+Created by **Kiwi Singh** and the community. Special thanks to the BepInEx team for the legendary modding framework.
 
 *Disclaimer: BepisLoader is not affiliated with PepsiCo, BepInEx, CodeWeavers, or GameSir. Stay hydrated.*
