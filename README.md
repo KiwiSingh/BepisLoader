@@ -2,7 +2,7 @@
 
 ![BepisLoader Logo](BepisLogo.png)
 
-**BepisLoader v1.0.2** is a native macOS power-tool for installing and managing **BepInEx** mods in Windows Unity games. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
+**BepisLoader** is a native macOS power-tool for installing and managing **BepInEx** mods in Windows Unity games. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
 
 ---
 
@@ -83,6 +83,6 @@ The resulting `BepisLoader.app` will be in `.build/release/`.
 
 ## 🤝 Credits
 
-Created by **KiwiSingh** and the community. Special thanks to the BepInEx team for the legendary modding framework.
+Created by **Kiwi Singh** and the community. Special thanks to the BepInEx team for the legendary modding framework.
 
 *Disclaimer: BepisLoader is not affiliated with PepsiCo, BepInEx, CodeWeavers, or GameSir. Stay hydrated.*
