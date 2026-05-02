@@ -85,4 +85,12 @@ The resulting `BepisLoader.app` will be in `.build/release/`.
 
 Created by **Kiwi Singh** and the community. Special thanks to the BepInEx team for the legendary modding framework.
 
+------------------------------------------------------------------------
+
+## ☕ Support the Project
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kiwisingh)\
+
+------------------------------------------------------------------------
+
 *Disclaimer: BepisLoader is not affiliated with PepsiCo, BepInEx, CodeWeavers, or GameSir. Stay hydrated.*
