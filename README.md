@@ -37,7 +37,7 @@ If you want to build BepisLoader yourself:
 
 ```bash
 # Clone the project
-git clone https://github.com/yourusername/BepisLoader
+git clone https://github.com/KiwiSingh/BepisLoader
 cd BepisLoader
 
 # Build the .app bundle using the included script
