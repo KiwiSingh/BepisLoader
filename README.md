@@ -65,6 +65,6 @@ The resulting `BepisLoader.app` will be in `.build/release/`.
 
 ## 🤝 Credits
 
-Created by **KiwiSingh** and the community. Special thanks to the BepInEx team for the legendary modding framework.
+Created by **Kiwi Singh** and the community. Special thanks to the BepInEx team for the legendary modding framework.
 
 *Disclaimer: BepisLoader is not affiliated with PepsiCo, BepInEx, or CodeWeavers. Stay hydrated.*
