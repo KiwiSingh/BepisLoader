@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CommonCrypto
 
 // ─────────────────────────────────────────────
 //  BepInExInstaller  v1.0.1
@@ -120,11 +121,9 @@ class BepInExInstaller {
                 self.removeQuarantine(versionDll)
                 self.removeQuarantineRecursive(game.bepInExRoot)
 
-                // 6. Doorstop config (Mono only; IL2CPP uses a different loader)
-                if !isIL2CPP {
-                    progress(0.68, "Writing Doorstop configuration…")
-                    try self.writeDoorstopConfig(for: game)
-                }
+                // 6. Doorstop config — always written, format depends on Mono vs IL2CPP
+                progress(0.68, "Writing Doorstop configuration…")
+                try self.writeDoorstopConfig(for: game, isIL2CPP: isIL2CPP)
 
                 // 7. Wine registry DLL override (user.reg — works for all layers)
                 progress(0.75, "Patching Wine registry…")
@@ -209,15 +208,57 @@ class BepInExInstaller {
     }
 
     // ── Doorstop config ────────────────────────
+    //
+    //  For CrossOver / Whisky / standalone Wine, a relative path works because
+    //  the game exe and BepInEx folder are in the same directory.
+    //
+    //  For GameMac, the Wine prefix is a separate virtual container — the game
+    //  lives on the host filesystem (often an external drive). Doorstop needs
+    //  an absolute Windows path, which in Wine is the Z:\ mapping of the
+    //  macOS host path.
 
-    private func writeDoorstopConfig(for game: GameInstall) throws {
-        let config = """
+    private func writeDoorstopConfig(for game: GameInstall, isIL2CPP: Bool) throws {
+        // BepInEx 5 (Mono)  → Doorstop v3: [UnityDoorstop] / targetAssembly
+        // BepInEx 6 (IL2CPP) → Doorstop v4: [General] / target_assembly + [Il2Cpp] section
+        
+        let targetDll = isIL2CPP ? "BepInEx\\core\\BepInEx.Unity.IL2CPP.dll" : "BepInEx\\core\\BepInEx.Preloader.dll"
+        var targetPath = targetDll
+        
+        // For GameMac, use an absolute Z:\ path because game files are often on a separate volume
+        if game.bottle.layer == .gameMac {
+            let winFormattedPath = game.gameDirectory.appendingPathComponent(targetDll.replacingOccurrences(of: "\\", with: "/")).path.replacingOccurrences(of: "/", with: "\\")
+            targetPath = "Z:" + winFormattedPath
+        }
+
+        let config: String
+        if isIL2CPP {
+            config = """
+[General]
+enabled = true
+target_assembly = \(targetPath)
+redirect_output_log = false
+boot_config_override =
+ignore_disable_switch = false
+
+[UnityMono]
+dll_search_path_override =
+debug_enabled = false
+debug_address = 127.0.0.1:10000
+debug_suspend = false
+
+[Il2Cpp]
+coreclr_path = dotnet\\coreclr.dll
+corlib_dir = dotnet
+"""
+        } else {
+            config = """
 [UnityDoorstop]
 enabled=true
-targetAssembly=BepInEx\\core\\BepInEx.Preloader.dll
+targetAssembly=\(targetPath)
 redirectOutputLog=false
 ignoreDisableSwitch=false
 """
+        }
         do { try config.write(to: game.doorstopConfig, atomically: true, encoding: .utf8) }
         catch { throw InstallerError.configWriteFailed(error.localizedDescription) }
     }
@@ -228,12 +269,9 @@ ignoreDisableSwitch=false
     //  which may not be available or may require WINEPREFIX to be booted.
 
     private func injectWineDllOverride(for game: GameInstall) {
-        let regURL = game.bottle.path.appendingPathComponent("user.reg")
-        guard FileManager.default.fileExists(atPath: regURL.path) else {
-            print("[BepisLoader] user.reg not found, skipping registry patch.")
-            return
-        }
-        try? patchUserReg(at: regURL)
+        // Use the layer's Wine binary to write the registry safely.
+        // This avoids corrupting .reg files with malformed section headers.
+        patchWineRegistry(for: game.bottle)
     }
 
     // ── Per-layer config patching dispatcher ───────────────────────────────
@@ -380,31 +418,205 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
         print("[BepisLoader] Wrote Whisky launch wrapper at \(wrapperURL.path).")
     }
 
-    // ── GameMac: game_container_store.json + system.reg ──────────────────────
+    // ── GameHub (GameMac): game-settings/<hash>.json ──────────────────────────
     //
-    //  GameMac (com.gamemac.www) stores its game registry at:
-    //    ~/Library/Application Support/com.gamemac.www/gamehub/game_container_store.json
+    //  GameHub stores per-game settings in:
+    //    ~/Library/Application Support/com.gamemac.www/gamehub/game-settings/<hash>.json
     //
-    //  There is no per-game launch config file to patch — GameMac reads
-    //  WINEDLLOVERRIDES from the Wine registry of each virtual container.
-    //  We patch both user.reg and system.reg of the bottle to be safe.
+    //  The filename is SHA256("steam:<platform_app_id>") — confirmed by cross-
+    //  referencing game_container_store.json bindings against the filenames on disk.
+    //
+    //  The JSON almost certainly has an "environmentVariables" key (matching the
+    //  "Environment Variables" UI option shown on gamemac.com). Writing
+    //  WINEDLLOVERRIDES there is the correct, first-class way to inject env vars
+    //  because GameHub applies them directly when it calls Wine — no registry
+    //  overlay, no cxbottle.conf, no intermediary that can rebuild and wipe them.
+    //
+    //  We keep the registry patch as belt-and-suspenders for the case where
+    //  GameHub ignores the settings file for a particular game.
 
     private func patchGameMacConfig(for game: GameInstall) throws {
-        let fm = FileManager.default
+        // Primary: write WINEDLLOVERRIDES into the per-game settings JSON.
+        // Two lookup strategies, tried in order:
+        //   1. game_container_store.json → platform_app_id → SHA256 filename
+        //   2. Scan all settings files for matching binding_id (the container ID)
+        //      This works even if game_container_store.json is unavailable.
+        let containerId = game.bottle.path.lastPathComponent
 
-        // Patch system.reg inside the virtual container (the bottle path)
-        let systemReg = game.bottle.path.appendingPathComponent("system.reg")
-        if fm.fileExists(atPath: systemReg.path) {
-            try? patchSystemReg(at: systemReg)
-            print("[BepisLoader] Patched GameMac system.reg for \(game.name).")
+        if let appId = gameMacAppId(for: game) {
+            patchGameMacSettings(appId: appId, game: game)
+        } else if let settingsURL = gameMacSettingsFileByBindingId(containerId) {
+            patchGameMacSettingsFile(at: settingsURL, game: game)
+        } else {
+            print("[BepisLoader] Could not find GameHub settings file for \(game.name).")
+            print("[BepisLoader] Launch the game once in GameHub (com.gamemac.www or com.www.gamemac), then re-run Install.")
         }
 
-        // Patch user.reg as well — GameMac honours both
-        let userReg = game.bottle.path.appendingPathComponent("user.reg")
-        if fm.fileExists(atPath: userReg.path) {
-            try? patchUserReg(at: userReg)
-            print("[BepisLoader] Patched GameMac user.reg for \(game.name).")
+        // Belt-and-suspenders: also set via Wine registry
+        patchWineRegistry(for: game.bottle)
+        print("[BepisLoader] Patched GameHub registry for \(game.name).")
+    }
+
+    /// Returns the Steam platform_app_id for a game by looking it up in
+    /// game_container_store.json, matched by the bottle's virtual_container_id.
+    private func gameMacAppId(for game: GameInstall) -> String? {
+        let home = NSHomeDirectory()
+        let bundleIds = ["com.gamemac.www", "com.www.gamemac"]
+        
+        for bid in bundleIds {
+            let storeURL = URL(fileURLWithPath: home)
+                .appendingPathComponent("Library/Application Support/\(bid)/gamehub/game_container_store.json")
+            guard let data = try? Data(contentsOf: storeURL),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let bindings = json["bindings"] as? [[String: Any]]
+            else { continue }
+
+            // Match by virtual_container_id — the last component of the bottle path
+            let containerId = game.bottle.path.lastPathComponent
+            if let appId = bindings
+                .first(where: { ($0["virtual_container_id"] as? String) == containerId })
+                .flatMap({ $0["platform_app_id"] as? String }) {
+                return appId
+            }
         }
+        return nil
+    }
+
+    /// Fallback: scans all game-settings JSON files for one whose binding_id
+    /// matches the container ID. The binding_id field in the settings file
+    /// maps 1:1 to virtual_container_id in game_container_store.json.
+    private func gameMacSettingsFileByBindingId(_ containerId: String) -> URL? {
+        let home = NSHomeDirectory()
+        let bundleIds = ["com.gamemac.www", "com.www.gamemac"]
+        
+        for bid in bundleIds {
+            let settingsDir = URL(fileURLWithPath: home)
+                .appendingPathComponent("Library/Application Support/\(bid)/gamehub/game-settings")
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: settingsDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+            ) else { continue }
+
+            for file in files where file.pathExtension == "json" {
+                guard let data = try? Data(contentsOf: file),
+                      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else { continue }
+                // binding_id is an Int in the JSON; containerId is a String like "6"
+                if let bindingId = root["binding_id"] as? Int,
+                   String(bindingId) == containerId {
+                    return file
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Patches the per-game settings JSON with WINEDLLOVERRIDES.
+    ///
+    /// Confirmed file structure (from disk inspection):
+    /// {
+    ///   "stable_game_key_hash": "<hash>",   // SHA256("steam:<appId>") — the filename
+    ///   "binding_id": 6,                    // matches virtual_container_id in game_container_store.json
+    ///   "settings": {
+    ///     ...                               // all per-game settings live here
+    ///     "environment_variables": {        // snake_case, added by BepisLoader
+    ///       "WINEDLLOVERRIDES": "winhttp=n,b;version=n,b"
+    ///     }
+    ///   }
+    /// }
+    private func patchGameMacSettings(appId: String, game: GameInstall) {
+        let home = NSHomeDirectory()
+        let bundleIds = ["com.gamemac.www", "com.www.gamemac"]
+        
+        for bid in bundleIds {
+            let settingsDir = URL(fileURLWithPath: home)
+                .appendingPathComponent("Library/Application Support/\(bid)/gamehub/game-settings")
+
+            // Compute SHA256("steam:<appId>") to get the settings filename
+            guard let hashData = "steam:\(appId)".data(using: .utf8) else { continue }
+            var digest = [UInt8](repeating: 0, count: 32)
+            hashData.withUnsafeBytes { ptr in
+                _ = CC_SHA256(ptr.baseAddress, CC_LONG(hashData.count), &digest)
+            }
+            let hash = digest.map { String(format: "%02x", $0) }.joined()
+            let settingsURL = settingsDir.appendingPathComponent("\(hash).json")
+
+            // Must read the existing file — it contains critical settings like
+            // compatibility_layer, graphics_stack etc. that we must not overwrite.
+            if FileManager.default.fileExists(atPath: settingsURL.path) {
+                patchGameMacSettingsFile(at: settingsURL, game: game)
+                return
+            }
+        }
+    }
+
+    /// Core writer — merges WINEDLLOVERRIDES into an existing settings file.
+    /// Called both from the hash-based path and the binding_id fallback path.
+    /// Core writer — merges WINEDLLOVERRIDES into an existing settings file.
+    /// Called both from the hash-based path and the binding_id fallback path.
+    private func patchGameMacSettingsFile(at settingsURL: URL, game: GameInstall) {
+        logDebug("Attempting to patch settings at: \(settingsURL.path)")
+        guard let data = try? Data(contentsOf: settingsURL) else {
+            logDebug("Failed to read settings file data.")
+            return
+        }
+        guard var root = (try? JSONSerialization.jsonObject(with: data, options: [.mutableContainers])) as? [String: Any] else {
+            logDebug("Failed to parse settings JSON.")
+            return
+        }
+        
+        // env vars confirmed at root → "settings" → "environment"
+        var settings = (root["settings"] as? [String: Any]) ?? [:]
+        var envVars  = (settings["environment"] as? [String: String]) ?? [:]
+
+        // 1. Basic overrides (use both proxies to be sure)
+        envVars["WINEDLLOVERRIDES"] = "winhttp=n,b;version=n,b"
+        envVars["DOORSTOP_ENABLE"]  = "TRUE"
+        
+        // 2. Invoke DLL path
+        let isIL2CPP = game.unityType == .il2cpp
+        let targetDll = isIL2CPP ? "BepInEx\\core\\BepInEx.Unity.IL2CPP.dll" : "BepInEx\\core\\BepInEx.Preloader.dll"
+        let winFormattedPath = game.gameDirectory.appendingPathComponent(targetDll.replacingOccurrences(of: "\\", with: "/")).path.replacingOccurrences(of: "/", with: "\\")
+        envVars["DOORSTOP_INVOKE_DLL_PATH"] = "Z:" + winFormattedPath
+        envVars["DOORSTOP_CORLIB_OVERRIDE"] = "FALSE"
+        
+        // 3. IL2CPP specific paths
+        if isIL2CPP {
+            let monoLib = game.gameDirectory.appendingPathComponent("mono/MonoBleedingEdge/EmbedRuntime/mono-2.0-sgen.dll").path.replacingOccurrences(of: "/", with: "\\")
+            let monoEtc = game.gameDirectory.appendingPathComponent("mono/MonoBleedingEdge/etc").path.replacingOccurrences(of: "/", with: "\\")
+            envVars["DOORSTOP_MONO_RUNTIME_LIB"] = "Z:" + monoLib
+            envVars["DOORSTOP_MONO_CONFIG_DIR"]  = "Z:" + monoEtc
+        }
+
+        settings["environment"] = envVars
+        root["settings"] = settings
+
+        do {
+            let patched = try JSONSerialization.data(
+                withJSONObject: root,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            try patched.write(to: settingsURL, options: .atomic)
+            logDebug("Successfully injected Doorstop env vars into GameHub 'environment' for \(game.name).")
+        } catch {
+            logDebug("Failed to write patched JSON: \(error)")
+        }
+    }
+
+    private func logDebug(_ msg: String) {
+        let logURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/BepisLoader_Install.log")
+        let timestamp = Date().description
+        let line = "[\(timestamp)] \(msg)\n"
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logURL.path),
+               let handle = try? FileHandle(forWritingTo: logURL) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                handle.closeFile()
+            } else {
+                try? data.write(to: logURL)
+            }
+        }
+        print("[BepisLoader] \(msg)")
     }
 
     // ── Porting Kit: wine.cfg + user.reg ──────────────────────────────────
@@ -488,46 +700,87 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
     }
 
     // ── Shared registry / config patchers ─────────────────────────────────
+    //
+    //  Wine .reg files have a strict format that is easy to corrupt with naive
+    //  text replacement:
+    //    - Section headers must use fully-qualified HKEY_ paths
+    //    - Headers carry a trailing Unix timestamp: [HKEY_...] 1234567890
+    //    - String values must be double-quoted
+    //
+    //  Corrupting a registry file causes GameHub/Wine to report errors like:
+    //    [2004] failed to repair virtual overlay registry metadata
+    //    Registry parse error: invalid quoted string literal
+    //
+    //  Primary strategy: call `wine reg add` via the layer's own Wine binary.
+    //  Wine writes its own registry correctly by definition.
+    //  Fallback: careful text patching that respects the HKEY_ format and
+    //  inserts values after the header line rather than replacing the header.
 
-    /// Patches a Wine user.reg to add winhttp + version DLL overrides.
+    /// Sets winhttp + version DLL overrides using the layer's Wine binary.
+    /// Falls back to text-patching user.reg only if no binary is found.
+    func patchWineRegistry(for bottle: Bottle) {
+        let key = "HKCU\\Software\\Wine\\DllOverrides"
+        let env = environmentForBottle(bottle)
+
+        if let wineBin = findWineBinary(for: bottle) {
+            shell(env: env, wineBin, "reg", "add", key,
+                  "/v", "winhttp", "/d", "native,builtin", "/f")
+            shell(env: env, wineBin, "reg", "add", key,
+                  "/v", "version", "/d", "native,builtin", "/f")
+            print("[BepisLoader] Set DLL overrides via wine reg add for \(bottle.name).")
+        } else {
+            let userReg = bottle.path.appendingPathComponent("user.reg")
+            if FileManager.default.fileExists(atPath: userReg.path) {
+                try? patchUserReg(at: userReg)
+            }
+        }
+    }
+
+    /// Last-resort text patch for user.reg when no Wine binary is available.
+    /// Inserts values after the existing section header (preserving its timestamp)
+    /// or appends a correctly-formed new section with a fresh timestamp.
     private func patchUserReg(at regURL: URL) throws {
-        var content     = try String(contentsOf: regURL, encoding: .utf8)
-        let section     = "[Software\\\\Wine\\\\DllOverrides]"
-        let winhttpLine = "\"winhttp\"=\"native,builtin\""
-        let versionLine = "\"version\"=\"native,builtin\""
+        var content = try String(contentsOf: regURL, encoding: .utf8)
+        let hkeySection  = "HKEY_CURRENT_USER\\Software\\Wine\\DllOverrides"
+        let winhttpLine  = "\"winhttp\"=\"native,builtin\""
+        let versionLine  = "\"version\"=\"native,builtin\""
 
-        if content.contains(section) {
-            if !content.contains("\"winhttp\"") {
-                content = content.replacingOccurrences(
-                    of: section, with: "\(section)\n\(winhttpLine)\n\(versionLine)"
-                )
+        if let sectionRange = content.range(of: hkeySection) {
+            guard !content.contains("\"winhttp\"") else { return }
+            // Find the newline that ends this header line and insert after it
+            if let eol = content[sectionRange.upperBound...].firstIndex(of: "\n") {
+                let insertPoint = content.index(after: eol)
+                content.insert(contentsOf: "\(winhttpLine)\n\(versionLine)\n", at: insertPoint)
             }
         } else {
-            content += "\n\n\(section)\n\(winhttpLine)\n\(versionLine)\n"
+            let ts = Int(Date().timeIntervalSince1970)
+            content += "\n[\(hkeySection)] \(ts)\n\(winhttpLine)\n\(versionLine)\n"
         }
         try content.write(to: regURL, atomically: true, encoding: .utf8)
     }
 
-    /// Patches a Wine system.reg (same section, but lives in system hive).
+    /// Last-resort text patch for system.reg.
+    /// DllOverrides in system.reg lives under HKEY_LOCAL_MACHINE.
     private func patchSystemReg(at regURL: URL) throws {
-        var content     = try String(contentsOf: regURL, encoding: .utf8)
-        let section     = "[Software\\\\Wine\\\\DllOverrides]"
-        let winhttpLine = "\"winhttp\"=\"native,builtin\""
-        let versionLine = "\"version\"=\"native,builtin\""
+        var content = try String(contentsOf: regURL, encoding: .utf8)
+        let hkeySection  = "HKEY_LOCAL_MACHINE\\Software\\Wine\\DllOverrides"
+        let winhttpLine  = "\"winhttp\"=\"native,builtin\""
+        let versionLine  = "\"version\"=\"native,builtin\""
 
-        if content.contains(section) {
-            if !content.contains("\"winhttp\"") {
-                content = content.replacingOccurrences(
-                    of: section, with: "\(section)\n\(winhttpLine)\n\(versionLine)"
-                )
+        if let sectionRange = content.range(of: hkeySection) {
+            guard !content.contains("\"winhttp\"") else { return }
+            if let eol = content[sectionRange.upperBound...].firstIndex(of: "\n") {
+                let insertPoint = content.index(after: eol)
+                content.insert(contentsOf: "\(winhttpLine)\n\(versionLine)\n", at: insertPoint)
             }
         } else {
-            content += "\n\n\(section)\n\(winhttpLine)\n\(versionLine)\n"
+            let ts = Int(Date().timeIntervalSince1970)
+            content += "\n[\(hkeySection)] \(ts)\n\(winhttpLine)\n\(versionLine)\n"
         }
         try content.write(to: regURL, atomically: true, encoding: .utf8)
     }
 
-    /// Patches a wine.cfg INI file's [DllOverrides] section.
+    /// Patches a wine.cfg INI file's [DllOverrides] section (used by Porting Kit).
     private func patchWineCfg(at url: URL) throws {
         var content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         let section = "[DllOverrides]"
@@ -628,11 +881,13 @@ Enabled = true
             ].first { FileManager.default.fileExists(atPath: $0) }
 
         case .gameMac:
-            // GameMac bundles Wine inside its own app container
-            let gameMacContainers = [
-                "\(home)/Library/Containers/com.gamemac.www/Data/Library/Application Support/com.gamemac.www/wine-engine",
-                "\(home)/Library/Application Support/com.gamemac.www/wine-engine",
-            ]
+            let bundleIds = ["com.gamemac.www", "com.www.gamemac"]
+            var gameMacContainers: [String] = []
+            for bid in bundleIds {
+                gameMacContainers.append("\(home)/Library/Containers/\(bid)/Data/Library/Application Support/\(bid)/wine-engine")
+                gameMacContainers.append("\(home)/Library/Application Support/\(bid)/wine-engine")
+            }
+
             for root in gameMacContainers {
                 let cands = [
                     "\(root)/bin/wine64",
@@ -704,11 +959,16 @@ Enabled = true
 
     @discardableResult
     func shell(_ args: String...) -> (exitCode: Int32, output: String) {
-        shell(env: nil, args)
+        shellRun(env: nil, args)
     }
 
     @discardableResult
-    private func shell(env: [String: String]? = nil, _ args: [String]) -> (exitCode: Int32, output: String) {
+    func shell(env: [String: String], _ args: String...) -> (exitCode: Int32, output: String) {
+        shellRun(env: env, args)
+    }
+
+    @discardableResult
+    private func shellRun(env: [String: String]? = nil, _ args: [String]) -> (exitCode: Int32, output: String) {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: args[0])
         proc.arguments = Array(args.dropFirst())

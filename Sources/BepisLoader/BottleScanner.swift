@@ -135,28 +135,37 @@ class BottleScanner {
     // ── GameMac ────────────────────────────────────────────────────────────────
 
     private func scanGameMac() -> [Bottle] {
-        let gameMacSupport = homeDir()
-            .appendingPathComponent("Library/Application Support/com.gamemac.www")
+        let home = homeDir()
+        let bundleIds = ["com.gamemac.www", "com.www.gamemac"]
+        
+        var allBottles: [Bottle] = []
+        
+        for bid in bundleIds {
+            let possibleRoots = [
+                home.appendingPathComponent("Library/Application Support/\(bid)"),
+                home.appendingPathComponent("Library/Containers/\(bid)/Data/Library/Application Support/\(bid)")
+            ]
+            
+            for supportDir in possibleRoots {
+                let storeURL = supportDir.appendingPathComponent("gamehub/game_container_store.json")
+                let containersRoot = supportDir.appendingPathComponent("wine-engine/containers/virtual_containers")
+                
+                guard fm.fileExists(atPath: storeURL.path),
+                      let data = try? Data(contentsOf: storeURL),
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let bindings = json["bindings"] as? [[String: Any]]
+                else {
+                    // JSON not found or unreadable — skip this root
+                    if fm.fileExists(atPath: containersRoot.path) {
+                        allBottles.append(contentsOf: bottlesIn(directory: containersRoot, layer: .gameMac))
+                    }
+                    continue
+                }
 
-        let storeURL = gameMacSupport
-            .appendingPathComponent("gamehub/game_container_store.json")
-        let containersRoot = gameMacSupport
-            .appendingPathComponent("wine-engine/containers/virtual_containers")
 
-        guard fm.fileExists(atPath: storeURL.path),
-              let data = try? Data(contentsOf: storeURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let bindings = json["bindings"] as? [[String: Any]]
-        else {
-            // JSON not found or unreadable — fall back to blind directory scan
-            // so at least numbered containers show up rather than nothing.
-            return bottlesIn(directory: containersRoot, layer: .gameMac)
-        }
-
-        var bottles: [Bottle] = []
         for binding in bindings {
             guard
-                let gameName   = binding["game_name"]           as? String,
+                let gameName    = binding["game_name"]            as? String,
                 let containerID = binding["virtual_container_id"] as? String
             else { continue }
 
@@ -164,21 +173,91 @@ class BottleScanner {
             let prefixURL = containersRoot.appendingPathComponent(containerID)
             guard isWineBottle(prefixURL) else { continue }
 
-            // game_path is where the game files live — stash it so findGames
-            // can search there directly even if it's on an external drive.
-            let gamePath = (binding["game_path"] as? String).map {
-                URL(fileURLWithPath: $0)
+            var bottle = Bottle(name: gameName, path: prefixURL, layer: .gameMac)
+
+            // game_path in game_container_store.json is the Steam library root
+            // (e.g. /Volumes/Zweidrive/Games) — not a per-game directory.
+            // Steam always installs games at <library>/steamapps/common/<installdir>.
+            //
+            // Strategy (tried in order):
+            //   1. Read steamapps/appmanifest_<appId>.acf to get the exact installdir name
+            //   2. Scan steamapps/common/ for a directory whose name matches game_name
+            //   3. Fall back to steamapps/common/ as a whole (finds all games but works)
+            if let gamePathStr = binding["game_path"] as? String,
+               let appId       = binding["platform_app_id"] as? String {
+                let libraryRoot  = URL(fileURLWithPath: gamePathStr)
+                let steamapps    = libraryRoot.appendingPathComponent("steamapps")
+                let commonDir    = steamapps.appendingPathComponent("common")
+
+                if let specificDir = resolveGameInstallDir(
+                    appId: appId, gameName: gameName,
+                    steamapps: steamapps, common: commonDir
+                ), fm.fileExists(atPath: specificDir.path) {
+                    // Best case: we know exactly which subdirectory this game is in
+                    bottle.extraSearchPaths = [specificDir]
+                } else if fm.fileExists(atPath: commonDir.path) {
+                    // Fallback: scan all of steamapps/common — still much narrower
+                    // than the library root since it skips steamapps/workshop etc.
+                    bottle.extraSearchPaths = [commonDir]
+                } else if fm.fileExists(atPath: libraryRoot.path) {
+                    bottle.extraSearchPaths = [libraryRoot]
+                }
             }
 
-            var bottle = Bottle(name: gameName, path: prefixURL, layer: .gameMac)
-            // Carry the external game path as an extra search root so that
-            // findGames() picks up the exe without relying on dosdevices symlinks.
-            if let gp = gamePath, fm.fileExists(atPath: gp.path) {
-                bottle.extraSearchPaths = [gp]
-            }
-            bottles.append(bottle)
+            allBottles.append(bottle)
         }
-        return bottles
+            }
+        }
+        
+        // Deduplicate bottles by path
+        var seenPaths = Set<String>()
+        return allBottles.filter { seenPaths.insert($0.path.path).inserted }
+    }
+
+    /// Resolves the exact game install directory from a Steam library.
+    ///
+    /// Tries, in order:
+    ///   1. Parse `steamapps/appmanifest_<appId>.acf` for the `installdir` field
+    ///   2. Direct match: `steamapps/common/<gameName>`
+    ///   3. Case-insensitive match against entries in `steamapps/common/`
+    private func resolveGameInstallDir(
+        appId: String, gameName: String,
+        steamapps: URL, common: URL
+    ) -> URL? {
+        // 1. ACF manifest — most reliable, gives exact installdir
+        let acf = steamapps.appendingPathComponent("appmanifest_\(appId).acf")
+        if fm.fileExists(atPath: acf.path),
+           let acfText = try? String(contentsOf: acf, encoding: .utf8) {
+            // ACF format: "installdir"		"<name>"
+            for line in acfText.components(separatedBy: .newlines) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.lowercased().hasPrefix("\"installdir\"") {
+                    // Extract the value between the second pair of quotes
+                    let parts = trimmed.components(separatedBy: "\"")
+                    if parts.count >= 4 {
+                        let installDir = parts[3]
+                        let candidate = common.appendingPathComponent(installDir)
+                        if fm.fileExists(atPath: candidate.path) { return candidate }
+                    }
+                }
+            }
+        }
+
+        // 2. Direct name match
+        let direct = common.appendingPathComponent(gameName)
+        if fm.fileExists(atPath: direct.path) { return direct }
+
+        // 3. Case-insensitive match
+        guard let entries = try? fm.contentsOfDirectory(
+            at: common, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+        ) else { return nil }
+
+        let lowerName = gameName.lowercased()
+        return entries.first {
+            $0.lastPathComponent.lowercased() == lowerName
+                || $0.lastPathComponent.lowercased().contains(lowerName)
+                || lowerName.contains($0.lastPathComponent.lowercased())
+        }
     }
 
     // ── Unity game detection ───────────────────
@@ -195,16 +274,13 @@ class BottleScanner {
             driveC,   // some games install at root
         ]
 
-        // For GameMac bottles, the game exe lives at game_path (already in
-        // extraSearchPaths). The Wine prefix is a separate virtual container, so
-        // drive_c doesn't contain the game files. We also walk dosdevices as a
-        // fallback in case GameMac symlinks the game path as a drive letter.
+        // For GameMac bottles, game files live at game_path on the external drive —
+        // NOT inside drive_c. extraSearchPaths carries game_path from
+        // game_container_store.json and is prepended below. We clear the drive_c
+        // search roots entirely for GameMac because they would just find
+        // Windows system files inside the virtual container, not game exes.
         if bottle.layer == .gameMac {
-            let installDir = bottle.path
-                .deletingLastPathComponent()  // compat/
-                .deletingLastPathComponent()  // _gamehub/
-                .deletingLastPathComponent()  // <installDir>
-            searchRoots.insert(installDir, at: 0)
+            searchRoots = []
         }
 
         // Also check other mapped drives in dosdevices (for external SSDs and
@@ -340,7 +416,16 @@ class BottleScanner {
         // 2. Try to read version from Core DLL (BepInEx 5 or 6)
         let coreDll5 = bepInExDir.appendingPathComponent("core/BepInEx.dll")
         let coreDll6 = bepInExDir.appendingPathComponent("core/BepInEx.Core.dll")
-        let coreDll = fm.fileExists(atPath: coreDll6.path) ? coreDll6 : coreDll5
+        let coreDllIL2CPP = bepInExDir.appendingPathComponent("core/BepInEx.Unity.IL2CPP.dll")
+        
+        let coreDll: URL
+        if fm.fileExists(atPath: coreDllIL2CPP.path) {
+            coreDll = coreDllIL2CPP
+        } else if fm.fileExists(atPath: coreDll6.path) {
+            coreDll = coreDll6
+        } else {
+            coreDll = coreDll5
+        }
 
         if fm.fileExists(atPath: coreDll.path) {
             if let version = readVersionFromAssembly(coreDll) {

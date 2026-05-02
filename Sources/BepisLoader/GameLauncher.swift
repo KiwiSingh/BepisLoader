@@ -51,7 +51,7 @@ class GameLauncher {
         env["DOORSTOP_ENABLE"]           = "TRUE"
         env["WINEDLLOVERRIDES"]          = "winhttp,version=n,b"
         
-        let targetDll = game.unityType == .il2cpp ? "core/BepInEx.IL2CPP.dll" : "core/BepInEx.Preloader.dll"
+        let targetDll = game.unityType == .il2cpp ? "core/BepInEx.Unity.IL2CPP.dll" : "core/BepInEx.Preloader.dll"
         env["DOORSTOP_INVOKE_DLL_PATH"]  = windowsPath(
             for: game.bepInExRoot.appendingPathComponent(targetDll),
             in: game.bottle
@@ -144,7 +144,7 @@ class GameLauncher {
                 }
             }
         }
-        return "Z:\\\(path.replacingOccurrences(of: "/", with: "\\"))"
+        return "Z:\(path.replacingOccurrences(of: "/", with: "\\"))"
     }
 
     /// Return the exe path in whatever form Wine wants it.

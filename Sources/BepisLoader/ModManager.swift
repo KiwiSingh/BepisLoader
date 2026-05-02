@@ -33,6 +33,9 @@ class ModManager {
 
     /// Installs a mod DLL (or a mod folder) into the game's plugins directory.
     func install(mod dllURL: URL, into game: GameInstall) throws {
+        let isScoped = dllURL.startAccessingSecurityScopedResource()
+        defer { if isScoped { dllURL.stopAccessingSecurityScopedResource() } }
+
         if !fm.fileExists(atPath: game.pluginsFolder.path) {
             try fm.createDirectory(at: game.pluginsFolder, withIntermediateDirectories: true)
         }
@@ -42,7 +45,9 @@ class ModManager {
         if fm.fileExists(atPath: dest.path) {
             try fm.removeItem(at: dest)
         }
+        
         try fm.copyItem(at: dllURL, to: dest)
+        print("[BepisLoader] Successfully installed mod to: \(dest.path)")
     }
 
     /// Installs all enabled mods from a list.

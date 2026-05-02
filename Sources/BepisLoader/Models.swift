@@ -20,7 +20,7 @@ enum CompatibilityLayer: String, CaseIterable, Codable {
         switch self {
         case .crossOver:        return ["com.codeweavers.CrossOver"]
         case .crossOverPreview: return ["com.codeweavers.CrossOver-Preview", "com.codeweavers.CrossOverPreview"]
-        case .gameMac:          return ["com.gamemac.www"]
+        case .gameMac:          return ["com.gamemac.www", "com.www.gamemac"]
         case .wine:             return []   // detected by process name
         case .wineskin:         return ["com.wineskin.wineskinserver"]
         case .porting:          return ["com.paulthe.portingkit"]

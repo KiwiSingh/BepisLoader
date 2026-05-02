@@ -92,7 +92,6 @@ class GameDetailViewController: NSViewController {
         viewLogButton.title = "View Log"
         viewLogButton.target = self
         viewLogButton.action = #selector(viewLogClicked)
-        viewLogButton.bezelStyle = .rounded
         viewLogButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(viewLogButton)
 
@@ -438,8 +437,9 @@ class GameDetailViewController: NSViewController {
                     self?.showAlert("Failed to install \(url.lastPathComponent):\n\(error.localizedDescription)", style: .warning)
                 }
             }
-            self?.mods = ModManager.shared.listMods(for: game)
-            self?.modTableView.reloadData()
+            DispatchQueue.main.async {
+                self?.refresh()
+            }
         }
     }
 
