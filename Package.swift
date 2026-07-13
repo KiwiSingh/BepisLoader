@@ -9,7 +9,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "BepisLoader",
-            path: "Sources/BepInExMacClient",
+            path: "Sources/BepisLoader",
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug))
             ]

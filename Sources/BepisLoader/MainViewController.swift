@@ -88,7 +88,12 @@ class MainViewController: NSSplitViewController {
 
 class BottleListViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
 
-    var bottles: [Bottle] = [] { didSet { tableView.reloadData() } }
+    var bottles: [Bottle] = [] {
+        didSet {
+            precondition(Thread.isMainThread, "Bottle list UI must be updated on the main thread")
+            tableView.reloadData()
+        }
+    }
     var onBottleSelected: ((Bottle?) -> Void)?
 
     private let tableView = NSTableView()
@@ -164,17 +169,23 @@ class BottleListViewController: NSViewController, NSTableViewDataSource, NSTable
     func numberOfRows(in tableView: NSTableView) -> Int { bottles.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        // AppKit can request a previously-visible row while reloadData() is
+        // reconciling the view hierarchy. macOS 27 does this more readily,
+        // so never subscript the model with an unvalidated delegate row.
+        guard bottles.indices.contains(row) else { return nil }
+
         let bottle = bottles[row]
         let cell = NSTableCellView()
-        cell.textField = makeLabel(bottle.name, size: 13, weight: .medium)
-        let sub        = makeLabel(bottle.layer.rawValue, size: 11, color: .secondaryLabelColor)
-        cell.addSubview(cell.textField!)
+        let nameLabel = makeLabel(bottle.name, size: 13, weight: .medium)
+        let sub = makeLabel(bottle.layer.rawValue, size: 11, color: .secondaryLabelColor)
+        cell.textField = nameLabel
+        cell.addSubview(nameLabel)
         cell.addSubview(sub)
         NSLayoutConstraint.activate([
-            cell.textField!.topAnchor.constraint(equalTo: cell.topAnchor, constant: 6),
-            cell.textField!.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
-            cell.textField!.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-            sub.topAnchor.constraint(equalTo: cell.textField!.bottomAnchor, constant: 2),
+            nameLabel.topAnchor.constraint(equalTo: cell.topAnchor, constant: 6),
+            nameLabel.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
+            nameLabel.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+            sub.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
             sub.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
         ])
         return cell
@@ -182,7 +193,7 @@ class BottleListViewController: NSViewController, NSTableViewDataSource, NSTable
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         let row = tableView.selectedRow
-        onBottleSelected?(row >= 0 ? bottles[row] : nil)
+        onBottleSelected?(bottles.indices.contains(row) ? bottles[row] : nil)
     }
 
     private func makeLabel(_ text: String, size: CGFloat, weight: NSFont.Weight = .regular,
@@ -202,8 +213,18 @@ class BottleListViewController: NSViewController, NSTableViewDataSource, NSTable
 class GameListViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
 
     var bottle: Bottle? { didSet { reload() } }
-    var allGames: [GameInstall] = [] { didSet { reload() } }
-    var games: [GameInstall] = [] { didSet { tableView.reloadData() } }
+    var allGames: [GameInstall] = [] {
+        didSet {
+            precondition(Thread.isMainThread, "Game list UI must be updated on the main thread")
+            reload()
+        }
+    }
+    var games: [GameInstall] = [] {
+        didSet {
+            precondition(Thread.isMainThread, "Game table UI must be updated on the main thread")
+            tableView.reloadData()
+        }
+    }
     var onGameSelected: ((GameInstall?) -> Void)?
 
     func addUniqueGames(_ newGames: [GameInstall]) {
@@ -325,6 +346,8 @@ class GameListViewController: NSViewController, NSTableViewDataSource, NSTableVi
     func numberOfRows(in tableView: NSTableView) -> Int { games.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard games.indices.contains(row) else { return nil }
+
         let game = games[row]
         let cell = NSTableCellView()
 
@@ -360,6 +383,6 @@ class GameListViewController: NSViewController, NSTableViewDataSource, NSTableVi
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         let row = tableView.selectedRow
-        onGameSelected?(row >= 0 ? games[row] : nil)
+        onGameSelected?(games.indices.contains(row) ? games[row] : nil)
     }
 }

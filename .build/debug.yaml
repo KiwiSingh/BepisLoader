@@ -1,0 +1,73 @@
+client:
+  name: basic
+  file-system: device-agnostic
+tools: {}
+targets:
+  "BepisLoader-x86_64-unknown-linux-gnu-debug.exe": ["<BepisLoader-x86_64-unknown-linux-gnu-debug.exe>"]
+  "BepisLoader-x86_64-unknown-linux-gnu-debug.module": ["<BepisLoader-x86_64-unknown-linux-gnu-debug.module>"]
+  "PackageStructure": ["<PackageStructure>"]
+  "main": ["<BepisLoader-x86_64-unknown-linux-gnu-debug.exe>","<BepisLoader-x86_64-unknown-linux-gnu-debug.module>"]
+  "test": ["<BepisLoader-x86_64-unknown-linux-gnu-debug.exe>","<BepisLoader-x86_64-unknown-linux-gnu-debug.module>"]
+default: "main"
+nodes:
+  "/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+commands:
+  "/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BepisLoader.swiftmodule.o":
+    tool: shell
+    inputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/Modules/BepisLoader.swiftmodule"]
+    outputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BepisLoader.swiftmodule.o"]
+    description: "Wrapping AST for BepisLoader for debugging"
+    args: ["/usr/local/swift/usr/bin/swiftc","-modulewrap","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/Modules/BepisLoader.swiftmodule","-o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BepisLoader.swiftmodule.o","-target","x86_64-unknown-linux-gnu"]
+
+  "/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/AppDelegate.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/BepInExInstaller.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/BottleScanner.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/GameDetailViewController.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/GameLauncher.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/MainViewController.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/ModManager.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/Models.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/PersistenceManager.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/ProcessWatcher.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/main.swift"]
+    outputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/sources"]
+    description: "Write auxiliary file /mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/sources"
+
+  "/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.product/Objects.LinkFileList":
+    tool: write-auxiliary-file
+    inputs: ["<link-file-list>","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/AppDelegate.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BepInExInstaller.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BepisLoader.swiftmodule.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BottleScanner.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/GameDetailViewController.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/GameLauncher.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/MainViewController.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/ModManager.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/Models.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/PersistenceManager.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/ProcessWatcher.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/main.swift.o"]
+    outputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.product/Objects.LinkFileList"]
+    description: "Write auxiliary file /mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.product/Objects.LinkFileList"
+
+  "/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/swift-version--1BA0962812E73E12.txt":
+    tool: write-auxiliary-file
+    inputs: ["<swift-get-version>","/usr/local/swift/usr/bin/swiftc"]
+    outputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/swift-version--1BA0962812E73E12.txt"]
+    always-out-of-date: "true"
+    description: "Write auxiliary file /mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/swift-version--1BA0962812E73E12.txt"
+
+  "<BepisLoader-x86_64-unknown-linux-gnu-debug.exe>":
+    tool: phony
+    inputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader"]
+    outputs: ["<BepisLoader-x86_64-unknown-linux-gnu-debug.exe>"]
+
+  "<BepisLoader-x86_64-unknown-linux-gnu-debug.module>":
+    tool: phony
+    inputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/AppDelegate.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BepInExInstaller.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BottleScanner.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/GameDetailViewController.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/GameLauncher.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/MainViewController.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/ModManager.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/Models.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/PersistenceManager.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/ProcessWatcher.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/main.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/Modules/BepisLoader.swiftmodule"]
+    outputs: ["<BepisLoader-x86_64-unknown-linux-gnu-debug.module>"]
+
+  "C.BepisLoader-x86_64-unknown-linux-gnu-debug.exe":
+    tool: shell
+    inputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/AppDelegate.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BepInExInstaller.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BepisLoader.swiftmodule.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BottleScanner.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/GameDetailViewController.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/GameLauncher.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/MainViewController.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/ModManager.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/Models.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/PersistenceManager.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/ProcessWatcher.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/main.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.product/Objects.LinkFileList"]
+    outputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader"]
+    description: "Linking ./.build/x86_64-unknown-linux-gnu/debug/BepisLoader"
+    args: ["/usr/local/swift/usr/bin/swiftc","-L","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug","-o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader","-module-name","BepisLoader","-emit-executable","-Xlinker","--defsym","-Xlinker","main=BepisLoader_main","-Xlinker","-rpath=$ORIGIN","@/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.product/Objects.LinkFileList","-target","x86_64-unknown-linux-gnu","-g"]
+
+  "C.BepisLoader-x86_64-unknown-linux-gnu-debug.module":
+    tool: shell
+    inputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/AppDelegate.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/BepInExInstaller.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/BottleScanner.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/GameDetailViewController.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/GameLauncher.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/MainViewController.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/ModManager.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/Models.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/PersistenceManager.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/ProcessWatcher.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/main.swift","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/swift-version--1BA0962812E73E12.txt","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/sources"]
+    outputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/AppDelegate.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BepInExInstaller.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/BottleScanner.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/GameDetailViewController.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/GameLauncher.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/MainViewController.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/ModManager.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/Models.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/PersistenceManager.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/ProcessWatcher.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/main.swift.o","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/Modules/BepisLoader.swiftmodule"]
+    description: "Compiling Swift Module 'BepisLoader' (11 sources)"
+    args: ["/usr/local/swift/usr/bin/swiftc","-module-name","BepisLoader","-emit-dependencies","-emit-module","-emit-module-path","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/Modules/BepisLoader.swiftmodule","-output-file-map","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/output-file-map.json","-incremental","-c","@/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/BepisLoader.build/sources","-I","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/Modules","-target","x86_64-unknown-linux-gnu","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/index/store","-Onone","-enable-testing","-j56","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/mnt/data/BepisLoader-work/BepisLoader-main/.build/x86_64-unknown-linux-gnu/debug/ModuleCache","-parseable-output","-Xfrontend","-entry-point-function-name","-Xfrontend","BepisLoader_main","-swift-version","5","-DDEBUG","-g","-Xcc","-fPIC","-Xcc","-g","-package-name","bepisloader_main","-Xcc","-fno-omit-frame-pointer"]
+
+  "PackageStructure":
+    tool: package-structure-tool
+    inputs: ["/mnt/data/BepisLoader-work/BepisLoader-main/Sources/BepisLoader/","/mnt/data/BepisLoader-work/BepisLoader-main/Package.swift","/mnt/data/BepisLoader-work/BepisLoader-main/Package.resolved"]
+    outputs: ["<PackageStructure>"]
+    description: "Planning build"
+    allow-missing-inputs: true
+

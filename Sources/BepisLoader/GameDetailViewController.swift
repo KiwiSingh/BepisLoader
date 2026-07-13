@@ -488,6 +488,8 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
     func numberOfRows(in tableView: NSTableView) -> Int { mods.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard mods.indices.contains(row) else { return nil }
+
         let mod = mods[row]
         let cell = NSTableCellView()
 
@@ -530,7 +532,7 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     @objc private func modToggled(_ sender: NSButton) {
-        guard let game = game, sender.tag < mods.count else { return }
+        guard let game = game, mods.indices.contains(sender.tag) else { return }
         var mod = mods[sender.tag]
         mod.isEnabled = sender.state == .on
         mods[sender.tag] = mod
