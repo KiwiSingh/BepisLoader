@@ -435,6 +435,22 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
     //  We keep the registry patch as belt-and-suspenders for the case where
     //  GameHub ignores the settings file for a particular game.
 
+
+    /// All supported GameHub application-support roots. Recent sandboxed builds
+    /// store their data inside Library/Containers, while older/non-sandboxed
+    /// builds use Library/Application Support directly.
+    private func gameHubSupportDirectories() -> [URL] {
+        let home = URL(fileURLWithPath: NSHomeDirectory())
+        let bundleIds = ["com.gamemac.www", "com.www.gamemac"]
+
+        return bundleIds.flatMap { bundleId in
+            [
+                home.appendingPathComponent("Library/Application Support/\(bundleId)"),
+                home.appendingPathComponent("Library/Containers/\(bundleId)/Data/Library/Application Support/\(bundleId)")
+            ]
+        }
+    }
+
     private func patchGameMacConfig(for game: GameInstall) throws {
         // Primary: write WINEDLLOVERRIDES into the per-game settings JSON.
         // Two lookup strategies, tried in order:
@@ -460,22 +476,22 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
     /// Returns the Steam platform_app_id for a game by looking it up in
     /// game_container_store.json, matched by the bottle's virtual_container_id.
     private func gameMacAppId(for game: GameInstall) -> String? {
-        let home = NSHomeDirectory()
-        let bundleIds = ["com.gamemac.www", "com.www.gamemac"]
-        
-        for bid in bundleIds {
-            let storeURL = URL(fileURLWithPath: home)
-                .appendingPathComponent("Library/Application Support/\(bid)/gamehub/game_container_store.json")
+        let containerId = game.bottle.path.lastPathComponent
+
+        for supportDir in gameHubSupportDirectories() {
+            let storeURL = supportDir.appendingPathComponent("gamehub/game_container_store.json")
             guard let data = try? Data(contentsOf: storeURL),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let bindings = json["bindings"] as? [[String: Any]]
             else { continue }
 
-            // Match by virtual_container_id — the last component of the bottle path
-            let containerId = game.bottle.path.lastPathComponent
             if let appId = bindings
-                .first(where: { ($0["virtual_container_id"] as? String) == containerId })
-                .flatMap({ $0["platform_app_id"] as? String }) {
+                .first(where: { String(describing: $0["virtual_container_id"] ?? "") == containerId })
+                .flatMap({ value -> String? in
+                    if let string = value["platform_app_id"] as? String { return string }
+                    if let number = value["platform_app_id"] as? NSNumber { return number.stringValue }
+                    return nil
+                }) {
                 return appId
             }
         }
@@ -486,12 +502,8 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
     /// matches the container ID. The binding_id field in the settings file
     /// maps 1:1 to virtual_container_id in game_container_store.json.
     private func gameMacSettingsFileByBindingId(_ containerId: String) -> URL? {
-        let home = NSHomeDirectory()
-        let bundleIds = ["com.gamemac.www", "com.www.gamemac"]
-        
-        for bid in bundleIds {
-            let settingsDir = URL(fileURLWithPath: home)
-                .appendingPathComponent("Library/Application Support/\(bid)/gamehub/game-settings")
+        for supportDir in gameHubSupportDirectories() {
+            let settingsDir = supportDir.appendingPathComponent("gamehub/game-settings")
             guard let files = try? FileManager.default.contentsOfDirectory(
                 at: settingsDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
             ) else { continue }
@@ -500,11 +512,17 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
                 guard let data = try? Data(contentsOf: file),
                       let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                 else { continue }
-                // binding_id is an Int in the JSON; containerId is a String like "6"
-                if let bindingId = root["binding_id"] as? Int,
-                   String(bindingId) == containerId {
-                    return file
+
+                let bindingValue: String
+                if let id = root["binding_id"] as? String {
+                    bindingValue = id
+                } else if let id = root["binding_id"] as? NSNumber {
+                    bindingValue = id.stringValue
+                } else {
+                    continue
                 }
+
+                if bindingValue == containerId { return file }
             }
         }
         return nil
@@ -524,14 +542,9 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
     ///   }
     /// }
     private func patchGameMacSettings(appId: String, game: GameInstall) {
-        let home = NSHomeDirectory()
-        let bundleIds = ["com.gamemac.www", "com.www.gamemac"]
-        
-        for bid in bundleIds {
-            let settingsDir = URL(fileURLWithPath: home)
-                .appendingPathComponent("Library/Application Support/\(bid)/gamehub/game-settings")
+        for supportDir in gameHubSupportDirectories() {
+            let settingsDir = supportDir.appendingPathComponent("gamehub/game-settings")
 
-            // Compute SHA256("steam:<appId>") to get the settings filename
             guard let hashData = "steam:\(appId)".data(using: .utf8) else { continue }
             var digest = [UInt8](repeating: 0, count: 32)
             hashData.withUnsafeBytes { ptr in
@@ -540,8 +553,6 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
             let hash = digest.map { String(format: "%02x", $0) }.joined()
             let settingsURL = settingsDir.appendingPathComponent("\(hash).json")
 
-            // Must read the existing file — it contains critical settings like
-            // compatibility_layer, graphics_stack etc. that we must not overwrite.
             if FileManager.default.fileExists(atPath: settingsURL.path) {
                 patchGameMacSettingsFile(at: settingsURL, game: game)
                 return
@@ -564,9 +575,23 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
             return
         }
         
-        // env vars confirmed at root → "settings" → "environment"
         var settings = (root["settings"] as? [String: Any]) ?? [:]
-        var envVars  = (settings["environment"] as? [String: String]) ?? [:]
+
+        // GameHub has used more than one key for this dictionary. Preserve the
+        // schema already present in the file; default to environment_variables,
+        // which is used by current builds.
+        let environmentKey: String
+        if settings["environment_variables"] != nil {
+            environmentKey = "environment_variables"
+        } else if settings["environmentVariables"] != nil {
+            environmentKey = "environmentVariables"
+        } else if settings["environment"] != nil {
+            environmentKey = "environment"
+        } else {
+            environmentKey = "environment_variables"
+        }
+
+        var envVars = (settings[environmentKey] as? [String: String]) ?? [:]
 
         // 1. Basic overrides (use both proxies to be sure)
         envVars["WINEDLLOVERRIDES"] = "winhttp=n,b;version=n,b"
@@ -587,7 +612,7 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
             envVars["DOORSTOP_MONO_CONFIG_DIR"]  = "Z:" + monoEtc
         }
 
-        settings["environment"] = envVars
+        settings[environmentKey] = envVars
         root["settings"] = settings
 
         do {
@@ -596,7 +621,7 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
                 options: [.prettyPrinted, .sortedKeys]
             )
             try patched.write(to: settingsURL, options: .atomic)
-            logDebug("Successfully injected Doorstop env vars into GameHub 'environment' for \(game.name).")
+            logDebug("Successfully injected Doorstop env vars into GameHub '\(environmentKey)' for \(game.name).")
         } catch {
             logDebug("Failed to write patched JSON: \(error)")
         }

@@ -49,7 +49,7 @@ class GameLauncher {
 
         // BepInEx / Doorstop environment variables
         env["DOORSTOP_ENABLE"]           = "TRUE"
-        env["WINEDLLOVERRIDES"]          = "winhttp,version=n,b"
+        env["WINEDLLOVERRIDES"]          = "winhttp=n,b;version=n,b"
         
         let targetDll = game.unityType == .il2cpp ? "core/BepInEx.Unity.IL2CPP.dll" : "core/BepInEx.Preloader.dll"
         env["DOORSTOP_INVOKE_DLL_PATH"]  = windowsPath(
@@ -75,8 +75,8 @@ class GameLauncher {
 
         // Make Wine not show error dialogs and hide wine spam
         env["WINEDEBUG"]                 = "-all"
-        // Ensure overrides are in the correct format for Wine (comma separated)
-        env["WINEDLLOVERRIDES"]          = "winhttp=n,b,version=n,b"
+        // Keep separate DLL override entries delimited with a semicolon.
+        env["WINEDLLOVERRIDES"]          = "winhttp=n,b;version=n,b"
 
         let proc = Process()
         proc.executableURL    = URL(fileURLWithPath: wineBin)

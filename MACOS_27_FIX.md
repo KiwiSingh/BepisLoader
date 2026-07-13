@@ -1,6 +1,6 @@
 # macOS 27 Golden Gate crash fix
 
-Version: 1.0.3
+Version: 1.0.4
 
 ## Fixed
 
@@ -9,7 +9,7 @@ Version: 1.0.3
 - Removes force-unwrapped bottle name-label access in the affected table-cell construction path.
 - Asserts that bottle/game model updates which trigger AppKit reloads occur on the main thread.
 - Corrects the Swift Package target path from the nonexistent `Sources/BepInExMacClient` to `Sources/BepisLoader`.
-- Bumps the generated app bundle version to 1.0.3.
+- Bumps the generated app bundle version to 1.0.4.
 
 ## Build on macOS
 

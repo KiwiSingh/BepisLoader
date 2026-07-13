@@ -1,0 +1,66 @@
+{
+  "" : {
+    "const-values" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader-primary.swiftconstvalues",
+    "dependencies" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader-primary.d",
+    "diagnostics" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader-primary.dia",
+    "emit-module-dependencies" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader-primary-emit-module.dia",
+    "pch" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader-primary.swiftdeps"
+  },
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/AppDelegate.swift" : {
+    "index-unit-output-path" : "/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/AppDelegate.o",
+    "llvm-bc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/AppDelegate.bc",
+    "object" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/AppDelegate.o"
+  },
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/BepInExInstaller.swift" : {
+    "index-unit-output-path" : "/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepInExInstaller.o",
+    "llvm-bc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepInExInstaller.bc",
+    "object" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepInExInstaller.o"
+  },
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/BottleScanner.swift" : {
+    "index-unit-output-path" : "/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BottleScanner.o",
+    "llvm-bc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BottleScanner.bc",
+    "object" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BottleScanner.o"
+  },
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/GameDetailViewController.swift" : {
+    "index-unit-output-path" : "/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/GameDetailViewController.o",
+    "llvm-bc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/GameDetailViewController.bc",
+    "object" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/GameDetailViewController.o"
+  },
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/GameLauncher.swift" : {
+    "index-unit-output-path" : "/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/GameLauncher.o",
+    "llvm-bc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/GameLauncher.bc",
+    "object" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/GameLauncher.o"
+  },
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/MainViewController.swift" : {
+    "index-unit-output-path" : "/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/MainViewController.o",
+    "llvm-bc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/MainViewController.bc",
+    "object" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/MainViewController.o"
+  },
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/ModManager.swift" : {
+    "index-unit-output-path" : "/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/ModManager.o",
+    "llvm-bc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/ModManager.bc",
+    "object" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/ModManager.o"
+  },
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/Models.swift" : {
+    "index-unit-output-path" : "/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/Models.o",
+    "llvm-bc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/Models.bc",
+    "object" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/Models.o"
+  },
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/PersistenceManager.swift" : {
+    "index-unit-output-path" : "/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/PersistenceManager.o",
+    "llvm-bc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/PersistenceManager.bc",
+    "object" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/PersistenceManager.o"
+  },
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/ProcessWatcher.swift" : {
+    "index-unit-output-path" : "/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/ProcessWatcher.o",
+    "llvm-bc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/ProcessWatcher.bc",
+    "object" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/ProcessWatcher.o"
+  },
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/main.swift" : {
+    "index-unit-output-path" : "/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/main.o",
+    "llvm-bc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/main.bc",
+    "object" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/main.o"
+  }
+}

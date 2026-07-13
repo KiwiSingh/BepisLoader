@@ -91,17 +91,37 @@ class ProcessWatcher {
             let comm    = String(parts[1])
             let cmdLine = parts.count > 2 ? String(parts[2]) : comm
 
-            // Must be a wine64 or wine process carrying a .exe
-            guard (comm.contains("wine64") || comm.contains("wine")) else { continue }
+            // GameHub may launch through wine, wine64, wine-preloader, or a
+            // Proton-style wrapper. Match the complete command line as well as
+            // `comm`, because wrapper process names are not stable.
+            let lowerProcess = (comm + " " + cmdLine).lowercased()
+            guard lowerProcess.contains("wine") || lowerProcess.contains("proton") else { continue }
 
-            // The last component of the command line is the Windows exe
-            let tokens = cmdLine.split(separator: " ")
-            guard let exeToken = tokens.last,
-                  exeToken.lowercased().hasSuffix(".exe") else { continue }
+            // The game executable is not necessarily the final argument. Extract
+            // every quoted or unquoted .exe path and choose the last non-system
+            // executable, which works with GameHub launch flags after the target.
+            let pattern = #"(?:\"([^\"]+\.exe)\"|'([^']+\.exe)'|([^\s]+\.exe))"#
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let range = NSRange(cmdLine.startIndex..<cmdLine.endIndex, in: cmdLine)
+            let candidates: [String] = regex.matches(in: cmdLine, options: [], range: range).compactMap { match in
+                for group in 1..<match.numberOfRanges where match.range(at: group).location != NSNotFound {
+                    if let swiftRange = Range(match.range(at: group), in: cmdLine) {
+                        return String(cmdLine[swiftRange])
+                    }
+                }
+                return nil
+            }
 
-            let exeName = String(exeToken).split(separator: "\\").last.map(String.init)
-                       ?? String(exeToken).split(separator: "/").last.map(String.init)
-                       ?? String(exeToken)
+            guard let exeToken = candidates.reversed().first(where: { token in
+                let name = token.split(separator: "\\").last.map(String.init)
+                    ?? token.split(separator: "/").last.map(String.init)
+                    ?? token
+                return !systemExes.contains(name.lowercased())
+            }) else { continue }
+
+            let exeName = exeToken.split(separator: "\\").last.map(String.init)
+                       ?? exeToken.split(separator: "/").last.map(String.init)
+                       ?? exeToken
 
             guard !systemExes.contains(exeName.lowercased()) else { continue }
 

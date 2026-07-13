@@ -1,0 +1,11 @@
+{
+  "/Volumes/Zweidrive/BepisLoader-repo/Sources/BepisLoader/AppDelegate.swift" : {
+    "abi-baseline-json" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader.abi.json",
+    "const-values" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader-primary.swiftconstvalues",
+    "dependencies" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader-primary.d",
+    "diagnostics" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader-primary.dia",
+    "swiftdoc" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader.swiftdoc",
+    "swiftmodule" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader.swiftmodule",
+    "swiftsourceinfo" : "/Volumes/Zweidrive/BepisLoader-repo/.build/out/Intermediates.noindex/BepisLoader.build/Release/BepisLoader-p.build/Objects-normal/arm64/BepisLoader.swiftsourceinfo"
+  }
+}

@@ -1,0 +1,6 @@
+Target dependency graph (3 targets)
+Target 'AllExcludingTests' in project 'Aggregate'
+➜ Explicit dependency on target 'BepisLoader-product' in project 'BepisLoader'
+➜ Explicit dependency on target 'BepisLoader' in project 'BepisLoader'
+Target 'BepisLoader' in project 'BepisLoader' (no dependencies)
+Target 'BepisLoader-product' in project 'BepisLoader' (no dependencies)
