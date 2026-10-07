@@ -138,7 +138,15 @@ struct ReloadedIIDependencyAcquisitionPlan {
 final class ReloadedIIDependencyAcquisitionService {
 
     static let shared =
-        ReloadedIIDependencyAcquisitionService()
+        ReloadedIIDependencyAcquisitionService(
+            providers: [
+                ReloadedIIIndexAcquisitionProvider(
+                    loader:
+                        ReloadedIIIndexNetworkLoader
+                            .shared
+                )
+            ]
+        )
 
     private var providers:
         [any ReloadedIIDependencyAcquisitionProvider]
