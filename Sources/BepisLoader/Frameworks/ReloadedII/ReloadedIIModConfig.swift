@@ -398,4 +398,185 @@ enum ReloadedIIModDiscovery {
             configURL: configURL
         )
     }
+
+
+    // ── Strict package inspection ─────────────
+    //
+    // Installed-mod discovery may be forgiving.
+    // Installation is deliberately strict:
+    // malformed package metadata must fail before
+    // the live Mods directory is touched.
+
+    static func packageMods(
+        under root: URL
+    ) throws -> [ReloadedIIDiscoveredMod] {
+        guard let enumerator =
+                fm.enumerator(
+                    at: root,
+                    includingPropertiesForKeys: [
+                        .isRegularFileKey
+                    ],
+                    options: [
+                        .skipsHiddenFiles
+                    ]
+                )
+        else {
+            throw DiscoveryError
+                .cannotEnumeratePackage
+        }
+
+        var result:
+            [ReloadedIIDiscoveredMod] = []
+
+        var seenIds =
+            Set<String>()
+
+        var foundConfig =
+            false
+
+        for case let url as URL in enumerator {
+            guard url.lastPathComponent
+                    .caseInsensitiveCompare(
+                        "ModConfig.json"
+                    ) == .orderedSame
+            else {
+                continue
+            }
+
+            foundConfig = true
+
+            let data: Data
+
+            do {
+                data = try Data(
+                    contentsOf: url
+                )
+            } catch {
+                throw DiscoveryError
+                    .unreadableModConfig(
+                        url
+                    )
+            }
+
+            let decoded:
+                ReloadedIIModConfig
+
+            do {
+                decoded =
+                    try JSONDecoder().decode(
+                        ReloadedIIModConfig.self,
+                        from: data
+                    )
+            } catch {
+                throw DiscoveryError
+                    .invalidModConfig(
+                        url,
+                        error
+                    )
+            }
+
+            let trimmedId =
+                decoded.modId
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+            guard !trimmedId.isEmpty else {
+                throw DiscoveryError
+                    .emptyModId(
+                        url
+                    )
+            }
+
+            let normalizedId =
+                trimmedId.lowercased()
+
+            guard seenIds.insert(
+                normalizedId
+            ).inserted else {
+                throw DiscoveryError
+                    .duplicateModId(
+                        trimmedId
+                    )
+            }
+
+            result.append(
+                ReloadedIIDiscoveredMod(
+                    config: decoded,
+                    configURL: url
+                )
+            )
+        }
+
+        guard foundConfig else {
+            throw DiscoveryError
+                .missingModConfig
+        }
+
+        return result
+    }
+
+    enum DiscoveryError:
+        LocalizedError
+    {
+        case cannotEnumeratePackage
+        case missingModConfig
+        case unreadableModConfig(URL)
+        case invalidModConfig(URL, Error)
+        case emptyModId(URL)
+        case duplicateModId(String)
+
+        var errorDescription: String? {
+            switch self {
+
+            case .cannotEnumeratePackage:
+                return """
+                The selected Reloaded-II package \
+                could not be inspected
+                """
+
+            case .missingModConfig:
+                return """
+                No ModConfig.json was found in \
+                the selected Reloaded-II package
+                """
+
+            case .unreadableModConfig(
+                let url
+            ):
+                return """
+                Could not read ModConfig.json at \
+                \(url.path)
+                """
+
+            case .invalidModConfig(
+                let url,
+                let error
+            ):
+                return """
+                Invalid Reloaded-II ModConfig at \
+                \(url.path):
+
+                \(error.localizedDescription)
+                """
+
+            case .emptyModId(
+                let url
+            ):
+                return """
+                Reloaded-II ModConfig at \
+                \(url.path) has an empty ModId
+                """
+
+            case .duplicateModId(
+                let modId
+            ):
+                return """
+                Package contains multiple \
+                ModConfig.json files for ModId \
+                \(modId)
+                """
+            }
+        }
+    }
 }

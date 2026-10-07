@@ -107,49 +107,92 @@ final class ReloadedIIModManager:
         from source: URL,
         into game: GameInstall
     ) throws {
-        var isDirectory:
-            ObjCBool = false
+        let paths =
+            ReloadedIIPaths(
+                game: game
+            )
 
-        guard fm.fileExists(
-            atPath: source.path,
-            isDirectory: &isDirectory
-        ),
-        isDirectory.boolValue
+        guard let modsRoot =
+                paths.mods
         else {
-            throw ReloadedIIModError
-                .expectedDirectory
-        }
-
-        let paths = ReloadedIIPaths(
-            game: game
-        )
-
-        guard let modsRoot = paths.mods else {
             throw ReloadedIIModError
                 .frameworkNotInstalled
         }
 
         let application =
-            try registry.register(game)
+            try registry.register(
+                game
+            )
 
-        guard let sourceMod =
-                ReloadedIIModDiscovery.firstMod(
-                    under: source
-                )
-        else {
+        var sourceIsDirectory:
+            ObjCBool = false
+
+        guard fm.fileExists(
+            atPath: source.path,
+            isDirectory:
+                &sourceIsDirectory
+        ) else {
             throw ReloadedIIModError
-                .missingModConfig
+                .sourceNotFound
         }
 
+        let workspace =
+            try PackageWorkspace(
+                fileManager: fm
+            )
+
+        defer {
+            workspace.cleanup()
+        }
+
+        let packageRoot =
+            try preparePackage(
+                source,
+                sourceIsDirectory:
+                    sourceIsDirectory.boolValue,
+                in: workspace
+            )
+
+        let packageMods:
+            [ReloadedIIDiscoveredMod]
+
+        do {
+            packageMods =
+                try ReloadedIIModDiscovery
+                    .packageMods(
+                        under: packageRoot
+                    )
+        } catch {
+            throw ReloadedIIModError
+                .invalidPackage(
+                    error.localizedDescription
+                )
+        }
+
+        guard packageMods.count == 1,
+              let packageMod =
+                packageMods.first
+        else {
+            throw ReloadedIIModError
+                .ambiguousPackage(
+                    packageMods.map {
+                        $0.config.modId
+                    }
+                )
+        }
+
+        let modConfig =
+            packageMod.config
+
         guard supports(
-            sourceMod.config,
+            modConfig,
             applicationId:
                 application.config.appId
         ) else {
             throw ReloadedIIModError
                 .unsupportedApplication(
                     modId:
-                        sourceMod.config.modId,
+                        modConfig.modId,
                     appId:
                         application.config.appId
                 )
@@ -164,79 +207,137 @@ final class ReloadedIIModManager:
             )
         }
 
-        // Refuse duplicate ModIds even if their
-        // folder names differ.
         let existing =
             ReloadedIIModDiscovery.mods(
                 under: modsRoot
             )
-
-        if existing.contains(
-            where: {
+            .first {
                 $0.config.modId
                     .caseInsensitiveCompare(
-                        sourceMod.config.modId
+                        modConfig.modId
                     ) == .orderedSame
             }
-        ) {
-            throw ReloadedIIModError
-                .duplicateModId(
-                    sourceMod.config.modId
-                )
-        }
 
         let destination =
-            uniqueDestination(
-                source.lastPathComponent,
-                under: modsRoot
+            modsRoot.appendingPathComponent(
+                safeDirectoryName(
+                    for: modConfig.modId
+                ),
+                isDirectory: true
             )
 
-        try fm.copyItem(
-            at: source,
-            to: destination
-        )
+        let wasEnabled =
+            application.config.enabledMods
+                .contains {
+                    $0.caseInsensitiveCompare(
+                        modConfig.modId
+                    ) == .orderedSame
+                }
 
-        // Validate the copied result before
-        // touching AppConfig.json.
-        guard let installed =
-                ReloadedIIModDiscovery.mods(
-                    under: destination
-                )
-                .first(
-                    where: {
-                        $0.config.modId
-                            .caseInsensitiveCompare(
-                                sourceMod.config.modId
-                            ) == .orderedSame
-                    }
-                )
-        else {
-            try? fm.removeItem(
-                at: destination
+        let previousSortedIndex =
+            application.config.sortedMods
+                .firstIndex {
+                    $0.caseInsensitiveCompare(
+                        modConfig.modId
+                    ) == .orderedSame
+                }
+
+        let transaction =
+            try transactionalInstall(
+                payload:
+                    packageMod.directory,
+                destination:
+                    destination,
+                existingDirectory:
+                    existing?.directory,
+                workspace:
+                    workspace
             )
-
-            throw ReloadedIIModError
-                .invalidInstalledMod
-        }
 
         do {
-            try setModEnabledById(
-                true,
-                modId:
-                    installed.config.modId,
-                game:
-                    game
+            let installedConfig =
+                destination
+                    .appendingPathComponent(
+                        "ModConfig.json"
+                    )
+
+            guard let verified =
+                    ReloadedIIModDiscovery.read(
+                        at: installedConfig
+                    ),
+                  verified.config.modId
+                    .caseInsensitiveCompare(
+                        modConfig.modId
+                    ) == .orderedSame
+            else {
+                throw ReloadedIIModError
+                    .invalidInstalledMod
+            }
+
+            var updated =
+                application
+
+            updated.config.enabledMods =
+                updated.config.enabledMods
+                    .filter {
+                        $0.caseInsensitiveCompare(
+                            modConfig.modId
+                        ) != .orderedSame
+                    }
+
+            updated.config.sortedMods =
+                updated.config.sortedMods
+                    .filter {
+                        $0.caseInsensitiveCompare(
+                            modConfig.modId
+                        ) != .orderedSame
+                    }
+
+            // New mods are enabled.
+            // Updates preserve disabled state.
+            if existing == nil || wasEnabled {
+                updated.config.enabledMods
+                    .append(
+                        modConfig.modId
+                    )
+            }
+
+            if let previousSortedIndex {
+                updated.config.sortedMods
+                    .insert(
+                        modConfig.modId,
+                        at: min(
+                            previousSortedIndex,
+                            updated.config
+                                .sortedMods.count
+                        )
+                    )
+            } else {
+                updated.config.sortedMods
+                    .append(
+                        modConfig.modId
+                    )
+            }
+
+            try registry.update(
+                updated
             )
+
+            transaction.commit()
+
         } catch {
-            try? fm.removeItem(
-                at: destination
-            )
+            do {
+                try transaction.rollback()
+            } catch {
+                throw ReloadedIIModError
+                    .rollbackFailed(
+                        error.localizedDescription
+                    )
+            }
 
             throw error
         }
     }
-
-    // ── Removal ───────────────────────────────
 
     func removeMod(
         _ mod: InstalledMod,
@@ -443,6 +544,385 @@ final class ReloadedIIModManager:
         )
     }
 
+    // ── Package installation ───────────────────
+
+    private final class PackageWorkspace {
+
+        let root: URL
+        let extraction: URL
+        let stagedPayload: URL
+        let backup: URL
+
+        private let fm:
+            FileManager
+
+        init(
+            fileManager: FileManager
+        ) throws {
+            fm = fileManager
+
+            root =
+                fileManager
+                    .temporaryDirectory
+                    .appendingPathComponent(
+                        "BepisLoader-ReloadedII-\(UUID().uuidString)",
+                        isDirectory: true
+                    )
+
+            extraction =
+                root.appendingPathComponent(
+                    "Extracted",
+                    isDirectory: true
+                )
+
+            stagedPayload =
+                root.appendingPathComponent(
+                    "Payload",
+                    isDirectory: true
+                )
+
+            backup =
+                root.appendingPathComponent(
+                    "Previous",
+                    isDirectory: true
+                )
+
+            try fileManager.createDirectory(
+                at: root,
+                withIntermediateDirectories: true
+            )
+        }
+
+        func cleanup() {
+            try? fm.removeItem(
+                at: root
+            )
+        }
+    }
+
+    private final class InstallTransaction {
+
+        private let fm:
+            FileManager
+
+        private let destination:
+            URL
+
+        private let backup:
+            URL
+
+        private let previousLocation:
+            URL?
+
+        private var finished =
+            false
+
+        init(
+            fileManager: FileManager,
+            destination: URL,
+            backup: URL,
+            previousLocation: URL?
+        ) {
+            fm = fileManager
+            self.destination = destination
+            self.backup = backup
+            self.previousLocation =
+                previousLocation
+        }
+
+        func commit() {
+            guard !finished else {
+                return
+            }
+
+            finished = true
+
+            if fm.fileExists(
+                atPath: backup.path
+            ) {
+                try? fm.removeItem(
+                    at: backup
+                )
+            }
+        }
+
+        func rollback() throws {
+            guard !finished else {
+                return
+            }
+
+            finished = true
+
+            if fm.fileExists(
+                atPath: destination.path
+            ) {
+                try fm.removeItem(
+                    at: destination
+                )
+            }
+
+            guard fm.fileExists(
+                atPath: backup.path
+            ) else {
+                return
+            }
+
+            let restoreLocation =
+                previousLocation
+                ?? destination
+
+            if fm.fileExists(
+                atPath: restoreLocation.path
+            ) {
+                try fm.removeItem(
+                    at: restoreLocation
+                )
+            }
+
+            try fm.moveItem(
+                at: backup,
+                to: restoreLocation
+            )
+        }
+    }
+
+    private func preparePackage(
+        _ source: URL,
+        sourceIsDirectory: Bool,
+        in workspace: PackageWorkspace
+    ) throws -> URL {
+        if sourceIsDirectory {
+            try fm.copyItem(
+                at: source,
+                to: workspace.extraction
+            )
+
+            return workspace.extraction
+        }
+
+        guard source.pathExtension
+                .caseInsensitiveCompare(
+                    "zip"
+                ) == .orderedSame
+        else {
+            throw ReloadedIIModError
+                .unsupportedPackageType
+        }
+
+        try fm.createDirectory(
+            at: workspace.extraction,
+            withIntermediateDirectories: true
+        )
+
+        try extractZip(
+            source,
+            to: workspace.extraction
+        )
+
+        return workspace.extraction
+    }
+
+    private func extractZip(
+        _ archive: URL,
+        to destination: URL
+    ) throws {
+        let process =
+            Process()
+
+        process.executableURL =
+            URL(
+                fileURLWithPath:
+                    "/usr/bin/ditto"
+            )
+
+        process.arguments = [
+            "-x",
+            "-k",
+            "--",
+            archive.path,
+            destination.path
+        ]
+
+        let errorPipe =
+            Pipe()
+
+        process.standardError =
+            errorPipe
+
+        do {
+            try process.run()
+        } catch {
+            throw ReloadedIIModError
+                .archiveExtractionFailed(
+                    error.localizedDescription
+                )
+        }
+
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0
+        else {
+            let data =
+                errorPipe
+                    .fileHandleForReading
+                    .readDataToEndOfFile()
+
+            let output =
+                String(
+                    data: data,
+                    encoding: .utf8
+                )?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+            throw ReloadedIIModError
+                .archiveExtractionFailed(
+                    output?.isEmpty == false
+                        ? output!
+                        : "ditto exited with status \(process.terminationStatus)"
+                )
+        }
+    }
+
+    private func safeDirectoryName(
+        for modId: String
+    ) -> String {
+        let invalid =
+            CharacterSet(
+                charactersIn:
+                    "/\\:"
+            )
+            .union(
+                .controlCharacters
+            )
+
+        let sanitized =
+            modId
+                .components(
+                    separatedBy: invalid
+                )
+                .filter {
+                    !$0.isEmpty
+                }
+                .joined(
+                    separator: "_"
+                )
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+
+        return sanitized.isEmpty
+            ? "ReloadedMod"
+            : sanitized
+    }
+
+    private func transactionalInstall(
+        payload: URL,
+        destination: URL,
+        existingDirectory: URL?,
+        workspace: PackageWorkspace
+    ) throws -> InstallTransaction {
+        try fm.copyItem(
+            at: payload,
+            to: workspace.stagedPayload
+        )
+
+        let stagedConfig =
+            workspace.stagedPayload
+                .appendingPathComponent(
+                    "ModConfig.json"
+                )
+
+        guard ReloadedIIModDiscovery.read(
+            at: stagedConfig
+        ) != nil
+        else {
+            throw ReloadedIIModError
+                .invalidInstalledMod
+        }
+
+        let previousLocation:
+            URL?
+
+        if let existingDirectory,
+           fm.fileExists(
+                atPath: existingDirectory.path
+           )
+        {
+            previousLocation =
+                existingDirectory
+
+            try fm.moveItem(
+                at: existingDirectory,
+                to: workspace.backup
+            )
+
+        } else if fm.fileExists(
+            atPath: destination.path
+        ) {
+            previousLocation =
+                destination
+
+            try fm.moveItem(
+                at: destination,
+                to: workspace.backup
+            )
+
+        } else {
+            previousLocation =
+                nil
+        }
+
+        do {
+            if fm.fileExists(
+                atPath: destination.path
+            ) {
+                try fm.removeItem(
+                    at: destination
+                )
+            }
+
+            try fm.moveItem(
+                at: workspace.stagedPayload,
+                to: destination
+            )
+
+        } catch {
+            if fm.fileExists(
+                atPath: destination.path
+            ) {
+                try? fm.removeItem(
+                    at: destination
+                )
+            }
+
+            if fm.fileExists(
+                atPath: workspace.backup.path
+            ) {
+                try? fm.moveItem(
+                    at: workspace.backup,
+                    to:
+                        previousLocation
+                        ?? destination
+                )
+            }
+
+            throw ReloadedIIModError
+                .transactionFailed(
+                    error.localizedDescription
+                )
+        }
+
+        return InstallTransaction(
+            fileManager: fm,
+            destination: destination,
+            backup: workspace.backup,
+            previousLocation:
+                previousLocation
+        )
+    }
+
     // ── Compatibility ─────────────────────────
 
     private func supports(
@@ -517,6 +997,13 @@ final class ReloadedIIModManager:
     {
         case expectedDirectory
         case frameworkNotInstalled
+        case sourceNotFound
+        case unsupportedPackageType
+        case invalidPackage(String)
+        case ambiguousPackage([String])
+        case archiveExtractionFailed(String)
+        case transactionFailed(String)
+        case rollbackFailed(String)
         case missingModConfig
         case invalidInstalledMod
         case duplicateModId(String)
@@ -534,6 +1021,69 @@ final class ReloadedIIModManager:
                 return """
                 Reloaded-II mods must be \
                 installed from a folder
+                """
+
+            case .sourceNotFound:
+                return """
+                The selected Reloaded-II mod \
+                package could not be found
+                """
+
+            case .unsupportedPackageType:
+                return """
+                Reloaded-II mods must be \
+                installed from a folder or \
+                ZIP archive
+                """
+
+            case .invalidPackage(
+                let reason
+            ):
+                return """
+                Invalid Reloaded-II package:
+
+                \(reason)
+                """
+
+            case .ambiguousPackage(
+                let modIds
+            ):
+                return """
+                The selected package contains \
+                multiple Reloaded-II mods:
+
+                \(modIds.joined(separator: ", "))
+                """
+
+            case .archiveExtractionFailed(
+                let reason
+            ):
+                return """
+                Could not extract Reloaded-II \
+                ZIP package:
+
+                \(reason)
+                """
+
+            case .transactionFailed(
+                let reason
+            ):
+                return """
+                Could not safely install the \
+                Reloaded-II mod:
+
+                \(reason)
+                """
+
+            case .rollbackFailed(
+                let reason
+            ):
+                return """
+                Reloaded-II installation failed \
+                and the previous mod could not \
+                be restored automatically:
+
+                \(reason)
                 """
 
             case .frameworkNotInstalled:
