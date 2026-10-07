@@ -14,14 +14,12 @@ class GameLauncher {
     enum LaunchError: LocalizedError {
         case wineBinaryNotFound
         case gameExecutableNotFound
-        case bepInExNotInstalled
         case launchFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .wineBinaryNotFound:      return "Wine binary not found for this compatibility layer"
             case .gameExecutableNotFound:  return "Game executable not found"
-            case .bepInExNotInstalled:     return "BepInEx is not installed for this game"
             case .launchFailed(let r):     return "Launch failed: \(r)"
             }
         }
@@ -30,14 +28,13 @@ class GameLauncher {
     // ── Launch ─────────────────────────────────
 
     @discardableResult
-    func launch(game: GameInstall, requireBepInEx: Bool = true) throws -> Process {
+    func launch(
+        game: GameInstall,
+        providers: [any GameLaunchProvider] = []
+    ) throws -> Process {
         guard FileManager.default.fileExists(atPath: game.executablePath.path) else {
             throw LaunchError.gameExecutableNotFound
         }
-        if requireBepInEx && !game.isBepInExInstalled {
-            throw LaunchError.bepInExNotInstalled
-        }
-
         let layerToUse = game.overrideLayer ?? game.bottle.layer
         let tempBottle = Bottle(
             name: game.bottle.name,
@@ -57,8 +54,8 @@ class GameLauncher {
             arguments: [windowsPathForExe(game.executablePath)]
         )
 
-        if requireBepInEx {
-            BepInExLaunchProvider.shared.configureLaunch(
+        for provider in providers {
+            provider.configureLaunch(
                 for: game,
                 configuration: &configuration
             )
