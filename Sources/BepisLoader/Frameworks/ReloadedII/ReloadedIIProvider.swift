@@ -18,6 +18,7 @@ final class ReloadedIIProvider: ModFrameworkProvider {
     let framework: ModFramework = .reloadedII
 
     private let fm = FileManager.default
+    private let installer = ReloadedIIInstaller.shared
 
     private init() {}
 
@@ -54,10 +55,10 @@ final class ReloadedIIProvider: ModFrameworkProvider {
         progress: @escaping (Double, String) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        completion(
-            .failure(
-                ReloadedIIError.installationNotImplemented
-            )
+        installer.install(
+            into: game,
+            progress: progress,
+            completion: completion
         )
     }
 
@@ -68,14 +69,10 @@ final class ReloadedIIProvider: ModFrameworkProvider {
     }
 
     enum ReloadedIIError: LocalizedError {
-        case installationNotImplemented
         case uninstallationNotImplemented
 
         var errorDescription: String? {
             switch self {
-            case .installationNotImplemented:
-                return "Reloaded-II installation is not implemented yet"
-
             case .uninstallationNotImplemented:
                 return "Reloaded-II uninstallation is not implemented yet"
             }
