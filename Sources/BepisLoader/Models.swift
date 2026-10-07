@@ -100,4 +100,3 @@ struct GameInstall: Identifiable, Hashable, Codable {
 
 }
 
-/// A BepInEx mod (plugin DLL + metadata)
