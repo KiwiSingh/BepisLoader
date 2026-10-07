@@ -17,7 +17,6 @@ final class ReloadedIIProvider: ModFrameworkProvider {
 
     let framework: ModFramework = .reloadedII
 
-    private let fm = FileManager.default
     private let installer = ReloadedIIInstaller.shared
 
     private init() {}
@@ -25,25 +24,21 @@ final class ReloadedIIProvider: ModFrameworkProvider {
     // ── Detection ─────────────────────────────
 
     func detect(in game: GameInstall) -> FrameworkInstallation {
-        let paths = ReloadedIIPaths(game: game)
+        let paths = ReloadedIIPaths(
+            game: game
+        )
 
-        guard fm.fileExists(atPath: paths.installationMarker.path) else {
+        guard paths.executable != nil else {
             return FrameworkInstallation(
                 framework: framework,
                 status: .notInstalled
             )
         }
 
-        let version = try? String(
-            contentsOf: paths.installationMarker,
-            encoding: .utf8
-        )
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-
         return FrameworkInstallation(
             framework: framework,
             status: .installed(
-                version: version?.isEmpty == false ? version : nil
+                version: nil
             )
         )
     }

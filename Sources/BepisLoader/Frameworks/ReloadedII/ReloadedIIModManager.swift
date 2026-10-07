@@ -25,12 +25,14 @@ final class ReloadedIIModManager: ModManaging {
     func installedMods(for game: GameInstall) -> [InstalledMod] {
         let paths = ReloadedIIPaths(game: game)
 
-        guard fm.fileExists(atPath: paths.mods.path) else {
+        guard let mods = paths.mods,
+              fm.fileExists(atPath: mods.path)
+        else {
             return []
         }
 
         let contents = (try? fm.contentsOfDirectory(
-            at: paths.mods,
+            at: mods,
             includingPropertiesForKeys: [
                 .isDirectoryKey
             ],
@@ -74,14 +76,18 @@ final class ReloadedIIModManager: ModManaging {
 
         let paths = ReloadedIIPaths(game: game)
 
-        if !fm.fileExists(atPath: paths.mods.path) {
+        guard let mods = paths.mods else {
+            throw ReloadedIIModError.frameworkNotInstalled
+        }
+
+        if !fm.fileExists(atPath: mods.path) {
             try fm.createDirectory(
-                at: paths.mods,
+                at: mods,
                 withIntermediateDirectories: true
             )
         }
 
-        let destination = paths.mods.appendingPathComponent(
+        let destination = mods.appendingPathComponent(
             source.lastPathComponent
         )
 
@@ -105,9 +111,15 @@ final class ReloadedIIModManager: ModManaging {
             throw ReloadedIIModError.wrongFramework
         }
 
-        let target = ReloadedIIPaths(game: game)
-            .mods
-            .appendingPathComponent(mod.path.lastPathComponent)
+        guard let mods = ReloadedIIPaths(
+            game: game
+        ).mods else {
+            throw ReloadedIIModError.frameworkNotInstalled
+        }
+
+        let target = mods.appendingPathComponent(
+            mod.path.lastPathComponent
+        )
 
         if fm.fileExists(atPath: target.path) {
             try fm.removeItem(at: target)
@@ -150,6 +162,7 @@ final class ReloadedIIModManager: ModManaging {
 
     enum ReloadedIIModError: LocalizedError {
         case expectedDirectory
+        case frameworkNotInstalled
         case wrongFramework
         case enableDisableNotImplemented
 
@@ -157,6 +170,9 @@ final class ReloadedIIModManager: ModManaging {
             switch self {
             case .expectedDirectory:
                 return "Reloaded-II mods must be installed from a directory"
+
+            case .frameworkNotInstalled:
+                return "Reloaded-II is not installed for this game"
 
             case .wrongFramework:
                 return "This mod does not belong to Reloaded-II"

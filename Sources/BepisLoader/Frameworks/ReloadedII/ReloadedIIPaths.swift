@@ -3,34 +3,110 @@ import Foundation
 // ─────────────────────────────────────────────
 //  ReloadedIIPaths
 //
-//  Framework-owned filesystem layout for a
-//  Reloaded-II installation associated with a
-//  game.
+//  Discovers Reloaded-II inside the game's Wine
+//  prefix.
 //
-//  Reloaded-II itself may live outside the game
-//  directory. These paths describe only the
-//  game-local state BepisLoader owns/manages.
+//  Setup-Linux.exe installs Reloaded-II onto the
+//  Wine user's Desktop. Wine user names differ
+//  between compatibility layers, so never assume
+//  "steamuser" or the macOS account name.
 // ─────────────────────────────────────────────
 
 struct ReloadedIIPaths {
 
     let game: GameInstall
 
-    /// BepisLoader-managed Reloaded-II state for this game.
-    var root: URL {
-        game.gameDirectory.appendingPathComponent("Reloaded-II")
+    private let fm = FileManager.default
+
+    // ── Prefix ────────────────────────────────
+
+    var prefix: URL {
+        game.bottle.path
     }
 
-    /// Game-local mod directory managed by BepisLoader.
-    var mods: URL {
-        root.appendingPathComponent("Mods")
+    var usersRoot: URL {
+        prefix
+            .appendingPathComponent("drive_c")
+            .appendingPathComponent("users")
     }
 
-    /// Marker written after a successful Reloaded-II setup.
-    ///
-    /// Keeping detection behind a marker lets the provider own
-    /// framework state without polluting GameInstall.
-    var installationMarker: URL {
-        root.appendingPathComponent(".bepisloader-installed")
+    // ── Installation discovery ────────────────
+
+    var installationRoot: URL? {
+        discoverInstallationRoot()
+    }
+
+    var executable: URL? {
+        guard let root = installationRoot else {
+            return nil
+        }
+
+        let executable = root
+            .appendingPathComponent("Reloaded-II.exe")
+
+        guard fm.fileExists(
+            atPath: executable.path
+        ) else {
+            return nil
+        }
+
+        return executable
+    }
+
+    var mods: URL? {
+        installationRoot?
+            .appendingPathComponent("Mods")
+    }
+
+    // ── Discovery ─────────────────────────────
+
+    private func discoverInstallationRoot() -> URL? {
+        guard let users = try? fm.contentsOfDirectory(
+            at: usersRoot,
+            includingPropertiesForKeys: [
+                .isDirectoryKey
+            ],
+            options: [
+                .skipsHiddenFiles
+            ]
+        ) else {
+            return nil
+        }
+
+        for user in users {
+            guard isDirectory(user) else {
+                continue
+            }
+
+            let candidate = user
+                .appendingPathComponent("Desktop")
+                .appendingPathComponent("Reloaded-II")
+
+            let executable = candidate
+                .appendingPathComponent("Reloaded-II.exe")
+
+            if fm.fileExists(
+                atPath: executable.path
+            ) {
+                return candidate
+            }
+        }
+
+        return nil
+    }
+
+    private func isDirectory(
+        _ url: URL
+    ) -> Bool {
+        var isDirectory: ObjCBool = false
+
+        guard fm.fileExists(
+            atPath: url.path,
+            isDirectory: &isDirectory
+        ) else {
+            return false
+        }
+
+        return isDirectory.boolValue
     }
 }

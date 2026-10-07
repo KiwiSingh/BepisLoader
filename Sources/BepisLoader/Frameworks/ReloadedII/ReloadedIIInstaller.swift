@@ -78,10 +78,12 @@ final class ReloadedIIInstaller {
                 self.report(
                     progress,
                     0.90,
-                    "Recording Reloaded-II installation…"
+                    "Verifying Reloaded-II installation…"
                 )
 
-                try self.writeInstallationMarker(for: game)
+                try self.verifyInstallation(
+                    for: game
+                )
 
                 self.report(
                     progress,
@@ -178,8 +180,11 @@ final class ReloadedIIInstaller {
             fileURLWithPath: wineBinary
         )
 
+        // Wine accepts a host Unix path for the
+        // executable. Avoid assuming every compatibility
+        // layer exposes the Unix filesystem through Z:.
         process.arguments = [
-            windowsPath(for: setup)
+            setup.path
         ]
 
         process.environment =
@@ -212,27 +217,24 @@ final class ReloadedIIInstaller {
         )
     }
 
-    // ── Installation marker ───────────────────
+    // ── Installation verification ─────────────
 
-    private func writeInstallationMarker(
+    private func verifyInstallation(
         for game: GameInstall
     ) throws {
-        let paths = ReloadedIIPaths(game: game)
+        let paths = ReloadedIIPaths(
+            game: game
+        )
 
-        if !fm.fileExists(atPath: paths.root.path) {
-            try fm.createDirectory(
-                at: paths.root,
-                withIntermediateDirectories: true
-            )
+        guard let executable = paths.executable else {
+            throw InstallerError.installationNotFound
         }
 
-        // Version discovery belongs to actual Reloaded-II
-        // installation inspection, not the setup launcher.
-        try "".write(
-            to: paths.installationMarker,
-            atomically: true,
-            encoding: .utf8
-        )
+        guard fm.fileExists(
+            atPath: executable.path
+        ) else {
+            throw InstallerError.installationNotFound
+        }
     }
 
     // ── Bottle handling ───────────────────────
@@ -246,17 +248,6 @@ final class ReloadedIIInstaller {
             layer: game.overrideLayer ?? game.bottle.layer,
             winePID: game.bottle.winePID,
             extraSearchPaths: game.bottle.extraSearchPaths
-        )
-    }
-
-    // ── Windows path conversion ───────────────
-
-    private func windowsPath(
-        for url: URL
-    ) -> String {
-        "Z:" + url.path.replacingOccurrences(
-            of: "/",
-            with: "\\"
         )
     }
 
@@ -276,6 +267,7 @@ final class ReloadedIIInstaller {
 
     enum InstallerError: LocalizedError {
         case wineBinaryNotFound
+        case installationNotFound
         case downloadFailed(String)
         case launchFailed(String)
         case installerFailed(
@@ -290,6 +282,13 @@ final class ReloadedIIInstaller {
                 return """
                 Wine binary not found for this \
                 compatibility environment
+                """
+
+            case .installationNotFound:
+                return """
+                Reloaded-II setup completed, but \
+                Reloaded-II.exe could not be found \
+                in the Wine user's Desktop folder
                 """
 
             case .downloadFailed(let reason):
