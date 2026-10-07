@@ -116,6 +116,12 @@ final class ReloadedIIReleaseService {
 
     private init() {}
 
+    func invalidateCache() {
+        queue.async {
+            self.cache = nil
+        }
+    }
+
     func updateStatus(
         installedVersion: String,
         completion:

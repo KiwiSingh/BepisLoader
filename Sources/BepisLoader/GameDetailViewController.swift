@@ -374,10 +374,97 @@ class GameDetailViewController: NSViewController {
         }
     }
 
+    private var availableReloadedIIVersion:
+        String?
+
     private func frameworkInstallation(
         for game: GameInstall
     ) -> FrameworkInstallation {
         selectedProvider.detect(in: game)
+    }
+
+    private func updateReloadedII(
+        game: GameInstall,
+        expectedVersion: String
+    ) {
+        installButton.isEnabled =
+            false
+
+        uninstallButton.isEnabled =
+            false
+
+        launchButton.isEnabled =
+            false
+
+        ReloadedIIUpdater.shared.update(
+            game: game,
+            expectedVersion:
+                expectedVersion,
+            progress: {
+                [weak self]
+                _,
+                message in
+
+                self?.statusLabel.stringValue =
+                    "🟠 \(message)"
+
+                self?.statusLabel.textColor =
+                    .systemOrange
+            },
+            completion: {
+                [weak self]
+                result in
+
+                guard let self else {
+                    return
+                }
+
+                self.installButton.isEnabled =
+                    true
+
+                self.uninstallButton.isEnabled =
+                    true
+
+                self.launchButton.isEnabled =
+                    true
+
+                switch result {
+
+                case .success:
+                    self.availableReloadedIIVersion =
+                        nil
+
+                    ReloadedIIReleaseService
+                        .shared
+                        .invalidateCache()
+
+                    self.refresh()
+
+                case .failure(
+                    let error
+                ):
+                    let alert =
+                        NSAlert()
+
+                    alert.alertStyle =
+                        .critical
+
+                    alert.messageText =
+                        "Reloaded-II Update Failed"
+
+                    alert.informativeText =
+                        error.localizedDescription
+
+                    alert.addButton(
+                        withTitle: "OK"
+                    )
+
+                    alert.runModal()
+
+                    self.refresh()
+                }
+            }
+        )
     }
 
     private func refreshReloadedIIUpdateStatus(
@@ -439,11 +526,20 @@ class GameDetailViewController: NSViewController {
                     let installed,
                     let latest
                 ):
+                    self.availableReloadedIIVersion =
+                        latest
+
                     self.statusLabel.stringValue =
                         "🟠 Reloaded-II \(installed) installed · \(latest) available"
 
                     self.statusLabel.textColor =
                         .systemOrange
+
+                    self.installButton.title =
+                        "Update Reloaded-II"
+
+                    self.installButton.isHidden =
+                        false
 
                 case .newerThanLatest(
                     let installed,
@@ -466,6 +562,9 @@ class GameDetailViewController: NSViewController {
     }
 
     private func refresh() {
+        availableReloadedIIVersion =
+            nil
+
         guard let game = game else {
             frameworkPopUp.selectItem(
             withTitle: selectedFramework.rawValue
@@ -640,6 +739,20 @@ let installation = frameworkInstallation(
     }
 
     @objc private func installClicked() {
+        if selectedFramework
+                == .reloadedII,
+           let latest =
+                availableReloadedIIVersion,
+           let game
+        {
+            updateReloadedII(
+                game: game,
+                expectedVersion: latest
+            )
+            return
+        }
+
+
         guard let game = game else {
             return
         }
