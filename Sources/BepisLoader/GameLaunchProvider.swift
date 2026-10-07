@@ -9,8 +9,18 @@ import Foundation
 // ─────────────────────────────────────────────
 
 struct GameLaunchConfiguration {
-    var environment: [String: String]
+    /// Windows executable Wine should start.
+    ///
+    /// Normally this is the game's executable.
+    /// A framework may replace it with its own
+    /// launcher executable.
+    var executable: URL
+
+    /// Arguments passed after `executable`.
     var arguments: [String]
+
+    /// Environment supplied to Wine.
+    var environment: [String: String]
 }
 
 protocol GameLaunchProvider {

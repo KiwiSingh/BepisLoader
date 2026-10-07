@@ -24,7 +24,8 @@ class GameDetailViewController: NSViewController {
     private let layerPopUp       = NSPopUpButton()
     private let installButton    = NSButton()
     private let uninstallButton  = NSButton()
-    private let launchInfoLabel  = NSTextField(labelWithString: "⚠️ Launch via CrossOver to use mods")
+    private let launchButton     = NSButton()
+    private let launchInfoLabel  = NSTextField(labelWithString: "")
     private let toggleEngineBtn  = NSButton()
     private let viewLogButton    = NSButton()
     private let progressBar      = NSProgressIndicator()
@@ -154,11 +155,24 @@ class GameDetailViewController: NSViewController {
         configureButton(installButton,   title: "Install BepisLoader",   action: #selector(installClicked))
         configureButton(uninstallButton, title: "Uninstall",         action: #selector(uninstallClicked))
         
+        configureButton(
+            launchButton,
+            title: "Launch",
+            action: #selector(launchClicked)
+        )
+
         launchInfoLabel.font = .systemFont(ofSize: 12, weight: .medium)
         launchInfoLabel.textColor = .systemOrange
         launchInfoLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let buttonStack = NSStackView(views: [installButton, uninstallButton, launchInfoLabel])
+        let buttonStack = NSStackView(
+            views: [
+                installButton,
+                uninstallButton,
+                launchButton,
+                launchInfoLabel
+            ]
+        )
         buttonStack.spacing = 12
         buttonStack.orientation = .horizontal
         buttonStack.translatesAutoresizingMaskIntoConstraints = false
@@ -335,6 +349,19 @@ class GameDetailViewController: NSViewController {
         }
     }
 
+    private var selectedLaunchProvider:
+        any GameLaunchProvider
+    {
+        switch selectedFramework {
+
+        case .bepInEx:
+            return BepInExLaunchProvider.shared
+
+        case .reloadedII:
+            return ReloadedIILaunchProvider.shared
+        }
+    }
+
     private var selectedModManager: any ModManaging {
         switch selectedFramework {
 
@@ -366,6 +393,7 @@ class GameDetailViewController: NSViewController {
             layerLabel.isHidden      = true
             installButton.isHidden   = true
             uninstallButton.isHidden = true
+            launchButton.isHidden    = true
             launchInfoLabel.isHidden = true
             mods = []
             modTableView.reloadData()
@@ -391,11 +419,7 @@ class GameDetailViewController: NSViewController {
         let activeLayer = game.overrideLayer ?? game.bottle.layer
         layerPopUp.selectItem(withTitle: activeLayer.rawValue)
         
-        installButton.isHidden    = BepInExProvider.shared.detect(in: game).isInstalled
-        uninstallButton.isHidden  = !BepInExProvider.shared.detect(in: game).isInstalled
-        launchInfoLabel.isHidden  = !BepInExProvider.shared.detect(in: game).isInstalled
-
-        let installation = frameworkInstallation(
+let installation = frameworkInstallation(
             for: game
         )
 
@@ -447,16 +471,34 @@ class GameDetailViewController: NSViewController {
         uninstallButton.isHidden =
             !installation.isInstalled
 
-        // These controls currently describe BepInEx's
-        // Doorstop-based launch behavior and log.
-        launchInfoLabel.isHidden =
-            selectedFramework != .bepInEx ||
+        launchButton.isHidden =
             !installation.isInstalled
 
+        launchButton.isEnabled =
+            runningProcess?.isRunning != true
+
+        launchButton.title =
+            "Launch with \(selectedFramework.rawValue)"
+
+        launchInfoLabel.isHidden =
+            !installation.isInstalled
+
+        switch selectedFramework {
+
+        case .bepInEx:
+            launchInfoLabel.stringValue =
+                "Launches the game with BepInEx"
+
+        case .reloadedII:
+            launchInfoLabel.stringValue =
+                "Launches through Reloaded-II"
+        }
+
+        // The log viewer still points specifically
+        // at BepInEx's LogOutput.log.
         viewLogButton.isHidden =
             selectedFramework != .bepInEx ||
             !installation.isInstalled
-
         modsHeader.stringValue =
             "\(selectedFramework.rawValue.uppercased()) MODS"
 
@@ -720,6 +762,106 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
         default: break
         }
         return cell
+    }
+
+    @objc private func launchClicked() {
+        guard let game = game else {
+            return
+        }
+
+        let installation =
+            frameworkInstallation(
+                for: game
+            )
+
+        guard installation.isInstalled else {
+            showAlert(
+                "\(selectedFramework.rawValue) is not installed.",
+                style: .warning
+            )
+
+            return
+        }
+
+        if let process = runningProcess,
+           process.isRunning
+        {
+            showAlert(
+                "A game launch is already running.",
+                style: .warning
+            )
+
+            return
+        }
+
+        do {
+            if selectedFramework == .reloadedII {
+                // Reloaded-II resolves --launch
+                // against its registered AppConfig.
+                // Surface registration errors here
+                // instead of silently falling back.
+                _ = try ReloadedIIApplicationRegistry
+                    .shared
+                    .register(game)
+            }
+
+            let process =
+                try GameLauncher.shared.launch(
+                    game: game,
+                    providers: [
+                        selectedLaunchProvider
+                    ]
+                )
+
+            runningProcess =
+                process
+
+            launchButton.isEnabled =
+                false
+
+            switch selectedFramework {
+
+            case .bepInEx:
+                launchInfoLabel.stringValue =
+                    "Launching \(game.name) with BepInEx…"
+
+            case .reloadedII:
+                launchInfoLabel.stringValue =
+                    "Reloaded-II is launching \(game.name)…"
+            }
+
+            process.terminationHandler = {
+                [weak self, weak process] _ in
+
+                DispatchQueue.main.async {
+                    guard let self else {
+                        return
+                    }
+
+                    if self.runningProcess === process {
+                        self.runningProcess =
+                            nil
+                    }
+
+                    self.launchButton.isEnabled =
+                        true
+
+                    self.refresh()
+                }
+            }
+
+        } catch {
+            runningProcess =
+                nil
+
+            launchButton.isEnabled =
+                true
+
+            showAlert(
+                "Could not launch \(game.name):\n\(error.localizedDescription)",
+                style: .warning
+            )
+        }
     }
 
     @objc private func modToggled(_ sender: NSButton) {

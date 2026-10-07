@@ -50,8 +50,11 @@ class GameLauncher {
         }
 
         var configuration = GameLaunchConfiguration(
-            environment: wineEnvironment.environment(for: tempBottle),
-            arguments: [windowsPathForExe(game.executablePath)]
+            executable: game.executablePath,
+            arguments: [],
+            environment: wineEnvironment.environment(
+                for: tempBottle
+            )
         )
 
         for provider in providers {
@@ -64,11 +67,30 @@ class GameLauncher {
         // Suppress Wine diagnostics unless a framework explicitly changes it.
         configuration.environment["WINEDEBUG"] = "-all"
 
+        guard FileManager.default.fileExists(
+            atPath: configuration.executable.path
+        ) else {
+            throw LaunchError.gameExecutableNotFound
+        }
+
         let proc = Process()
-        proc.executableURL    = URL(fileURLWithPath: wineBin)
-        proc.arguments        = configuration.arguments
-        proc.environment      = configuration.environment
-        proc.currentDirectoryURL = game.gameDirectory
+
+        proc.executableURL = URL(
+            fileURLWithPath: wineBin
+        )
+
+        proc.arguments = [
+            windowsPathForExe(
+                configuration.executable
+            )
+        ] + configuration.arguments
+
+        proc.environment =
+            configuration.environment
+
+        proc.currentDirectoryURL =
+            configuration.executable
+                .deletingLastPathComponent()
 
         // Pipe logs so we can surface them in the UI
         let outPipe = Pipe()
