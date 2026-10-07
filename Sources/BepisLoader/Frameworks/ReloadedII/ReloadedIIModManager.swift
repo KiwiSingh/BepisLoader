@@ -105,6 +105,310 @@ final class ReloadedIIModManager:
 
     // MARK: - Dependency Inspector
 
+    func installMissingDependencies(
+        for mod: InstalledMod,
+        in game: GameInstall
+    ) async throws -> [String] {
+        guard mod.framework
+                == .reloadedII
+        else {
+            throw ReloadedIIModError
+                .wrongFramework
+        }
+
+        let paths =
+            ReloadedIIPaths(
+                game: game
+            )
+
+        guard let modsRoot =
+                paths.mods,
+              fm.fileExists(
+                atPath:
+                    modsRoot.path
+              )
+        else {
+            throw ReloadedIIModError
+                .frameworkNotInstalled
+        }
+
+        let application =
+            try registry.register(
+                game
+            )
+
+        let initialMods =
+            ReloadedIIModDiscovery
+                .mods(
+                    under: modsRoot
+                )
+
+        let initialIndex =
+            modIndex(
+                initialMods
+            )
+
+        guard let target =
+                initialIndex[
+                    normalizedModId(
+                        mod.id
+                    )
+                ]
+        else {
+            throw ReloadedIIModError
+                .modNotFound(
+                    mod.id
+                )
+        }
+
+        let dependencyPlan =
+            ReloadedIIDependencyResolver
+                .shared
+                .plan(
+                    for:
+                        target.config.modId,
+                    installedMods:
+                        initialMods,
+                    enabledModIds:
+                        application.config
+                            .enabledMods,
+                    applicationId:
+                        application.config
+                            .appId
+                )
+
+        guard !dependencyPlan
+                .missingRequired
+                .isEmpty
+        else {
+            return []
+        }
+
+        guard dependencyPlan
+                .incompatibleRequired
+                .isEmpty
+        else {
+            throw ReloadedIIDependencyInstallError
+                .incompatibleDependencies(
+                    dependencyPlan
+                        .incompatibleRequired
+                        .map {
+                            $0.modId
+                        }
+                )
+        }
+
+        let acquisitionPlan =
+            await ReloadedIIDependencyAcquisitionService
+                .shared
+                .plan(
+                    for:
+                        dependencyPlan
+                )
+
+        let unresolved =
+            acquisitionPlan
+                .unresolved
+                .map {
+                    $0.dependency.modId
+                }
+
+        guard unresolved.isEmpty
+        else {
+            throw ReloadedIIDependencyInstallError
+                .unresolvedDependencies(
+                    unresolved
+                )
+        }
+
+        // Deeper nodes are dependencies of shallower
+        // nodes, so install deepest first. Stable ModId
+        // ordering keeps equivalent plans deterministic.
+        let ordered =
+            acquisitionPlan
+                .resolved
+                .sorted {
+                    if $0.dependency.depth
+                        != $1.dependency.depth
+                    {
+                        return $0.dependency.depth
+                            > $1.dependency.depth
+                    }
+
+                    return $0.dependency.modId
+                        .localizedCaseInsensitiveCompare(
+                            $1.dependency.modId
+                        )
+                        == .orderedAscending
+                }
+
+        var installed:
+            [String] = []
+
+        for resolution
+            in ordered
+        {
+            let expectedModId =
+                resolution
+                    .dependency
+                    .modId
+
+            // Patch 29 already sorts candidates
+            // deterministically by provider/source
+            // priority. Use the first candidate which
+            // actually exposes a package URL.
+            guard let candidate =
+                    resolution
+                        .candidates
+                        .first(
+                            where: {
+                                $0.packageURL
+                                    != nil
+                            }
+                        )
+            else {
+                throw ReloadedIIDependencyInstallError
+                    .noDownloadableCandidate(
+                        expectedModId
+                    )
+            }
+
+            let downloaded =
+                try await ReloadedIIDependencyPackageDownloader
+                    .shared
+                    .download(
+                        candidate:
+                            candidate
+                    )
+
+            defer {
+                try? fm.removeItem(
+                    at:
+                        downloaded.localURL
+                )
+            }
+
+            // SECURITY BOUNDARY:
+            //
+            // Inspect using the SAME PackageWorkspace,
+            // preparePackage(), validatePackageTree()
+            // and package discovery machinery used by
+            // installMod(). Do not trust the Index's
+            // ModId claim by itself.
+            let verificationWorkspace =
+                try PackageWorkspace(
+                    fileManager: fm
+                )
+
+            defer {
+                verificationWorkspace
+                    .cleanup()
+            }
+
+            let packageRoot =
+                try preparePackage(
+                    downloaded.localURL,
+                    sourceIsDirectory:
+                        false,
+                    in:
+                        verificationWorkspace
+                )
+
+            try validatePackageTree(
+                packageRoot
+            )
+
+            let packageMods:
+                [ReloadedIIDiscoveredMod]
+
+            do {
+                packageMods =
+                    try ReloadedIIModDiscovery
+                        .packageMods(
+                            under:
+                                packageRoot
+                        )
+            } catch {
+                throw ReloadedIIDependencyInstallError
+                    .invalidDownloadedPackage(
+                        modId:
+                            expectedModId,
+                        reason:
+                            error.localizedDescription
+                    )
+            }
+
+            guard packageMods.count == 1,
+                  let downloadedMod =
+                    packageMods.first
+            else {
+                throw ReloadedIIDependencyInstallError
+                    .ambiguousDownloadedPackage(
+                        expectedModId
+                    )
+            }
+
+            guard downloadedMod.config.modId
+                    .caseInsensitiveCompare(
+                        expectedModId
+                    )
+                    == .orderedSame
+            else {
+                throw ReloadedIIDependencyInstallError
+                    .modIdMismatch(
+                        expected:
+                            expectedModId,
+                        actual:
+                            downloadedMod
+                                .config
+                                .modId
+                    )
+            }
+
+            // installMod() performs its own independent
+            // extraction + validation + compatibility
+            // and dependency checks, then uses the
+            // existing transactional installer.
+            try installMod(
+                from:
+                    downloaded.localURL,
+                into:
+                    game
+            )
+
+            // Verify that the expected identity really
+            // exists after the transaction.
+            let installedNow =
+                ReloadedIIModDiscovery
+                    .mods(
+                        under: modsRoot
+                    )
+
+            guard installedNow
+                    .contains(
+                        where: {
+                            $0.config.modId
+                                .caseInsensitiveCompare(
+                                    expectedModId
+                                )
+                                == .orderedSame
+                        }
+                    )
+            else {
+                throw ReloadedIIDependencyInstallError
+                    .postInstallVerificationFailed(
+                        expectedModId
+                    )
+            }
+
+            installed.append(
+                expectedModId
+            )
+        }
+
+        return installed
+    }
+
     func dependencyAcquisitionSummary(
         for mod: InstalledMod,
         in game: GameInstall
@@ -2417,6 +2721,105 @@ final class ReloadedIIModManager:
     }
 
     // ── Errors ────────────────────────────────
+
+    enum ReloadedIIDependencyInstallError:
+        LocalizedError
+    {
+        case unresolvedDependencies([String])
+        case incompatibleDependencies([String])
+        case noDownloadableCandidate(String)
+        case invalidDownloadedPackage(
+            modId: String,
+            reason: String
+        )
+        case ambiguousDownloadedPackage(String)
+        case modIdMismatch(
+            expected: String,
+            actual: String
+        )
+        case postInstallVerificationFailed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unresolvedDependencies(
+                let modIds
+            ):
+                return """
+                Some required Reloaded-II dependencies \
+                could not be found in the configured \
+                acquisition sources:
+
+                \(modIds.joined(separator: ", "))
+                """
+
+            case .incompatibleDependencies(
+                let modIds
+            ):
+                return """
+                Some required Reloaded-II dependencies \
+                are installed but incompatible with \
+                this application:
+
+                \(modIds.joined(separator: ", "))
+                """
+
+            case .noDownloadableCandidate(
+                let modId
+            ):
+                return """
+                No downloadable package candidate \
+                is available for:
+
+                \(modId)
+                """
+
+            case .invalidDownloadedPackage(
+                let modId,
+                let reason
+            ):
+                return """
+                The downloaded package for \(modId) \
+                is not a valid Reloaded-II package:
+
+                \(reason)
+                """
+
+            case .ambiguousDownloadedPackage(
+                let modId
+            ):
+                return """
+                The downloaded package for \(modId) \
+                contains zero or multiple Reloaded-II \
+                mods and cannot be installed safely.
+                """
+
+            case .modIdMismatch(
+                let expected,
+                let actual
+            ):
+                return """
+                Dependency package identity mismatch.
+
+                Requested:
+                \(expected)
+
+                Downloaded package:
+                \(actual)
+
+                Nothing from this package was installed.
+                """
+
+            case .postInstallVerificationFailed(
+                let modId
+            ):
+                return """
+                Reloaded-II reported a successful \
+                dependency installation, but \(modId) \
+                could not be verified afterward.
+                """
+            }
+        }
+    }
 
     enum ReloadedIIModError:
         LocalizedError

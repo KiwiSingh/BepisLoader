@@ -1324,15 +1324,121 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
                     return
                 }
 
+                let shouldAcquire =
+                    await MainActor.run {
+                        let alert =
+                            NSAlert()
+
+                        alert.messageText =
+                            "Dependency Acquisition"
+
+                        alert.informativeText =
+                            summary
+
+                        alert.alertStyle =
+                            .informational
+
+                        alert.addButton(
+                            withTitle:
+                                "Acquire Missing…"
+                        )
+
+                        alert.addButton(
+                            withTitle:
+                                "Cancel"
+                        )
+
+                        return alert.runModal()
+                            == .alertFirstButtonReturn
+                    }
+
+                guard shouldAcquire
+                else {
+                    return
+                }
+
+                let confirmed =
+                    await MainActor.run {
+                        let alert =
+                            NSAlert()
+
+                        alert.messageText =
+                            "Install Missing Dependencies?"
+
+                        alert.informativeText = """
+                        BepisLoader will download the \
+                        required Reloaded-II packages \
+                        shown by the official acquisition \
+                        sources and pass each verified \
+                        package through the normal \
+                        transactional mod installer.
+
+                        Downloaded package ModIds must \
+                        exactly match the requested \
+                        dependencies.
+
+                        No downloaded executable is run \
+                        by BepisLoader.
+                        """
+
+                        alert.alertStyle =
+                            .warning
+
+                        alert.addButton(
+                            withTitle:
+                                "Download & Install"
+                        )
+
+                        alert.addButton(
+                            withTitle:
+                                "Cancel"
+                        )
+
+                        return alert.runModal()
+                            == .alertFirstButtonReturn
+                    }
+
+                guard confirmed
+                else {
+                    return
+                }
+
+                let installed =
+                    try await ReloadedIIModManager
+                        .shared
+                        .installMissingDependencies(
+                            for:
+                                selectedMod,
+                            in:
+                                game
+                        )
+
                 await MainActor.run {
+                    self.refresh()
+
                     let alert =
                         NSAlert()
 
                     alert.messageText =
-                        "Dependency Acquisition"
+                        installed.isEmpty
+                        ? "Dependencies Already Satisfied"
+                        : "Dependencies Installed"
 
-                    alert.informativeText =
-                        summary
+                    if installed.isEmpty {
+                        alert.informativeText =
+                            "No missing required dependencies remained."
+                    } else {
+                        alert.informativeText =
+                            "Installed:\n\n"
+                            + installed
+                                .map {
+                                    "• \($0)"
+                                }
+                                .joined(
+                                    separator:
+                                        "\n"
+                                )
+                    }
 
                     alert.alertStyle =
                         .informational
@@ -1346,8 +1452,10 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
 
             } catch {
                 await MainActor.run {
+                    self.refresh()
+
                     self.showAlert(
-                        "Could not look up dependency acquisition sources:\n\(error.localizedDescription)",
+                        "Could not acquire missing dependencies:\n\(error.localizedDescription)",
                         style: .warning
                     )
                 }
