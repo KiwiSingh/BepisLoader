@@ -597,61 +597,131 @@ final class ReloadedIIModManager:
         // COMMIT PHASE
         //
         // The complete recursive graph has resolved
-        // and every downloaded package has already
-        // passed identity/tree/compatibility checks.
+        // and every package has passed preflight.
+        //
+        // Each filesystem transaction remains live
+        // until the ENTIRE graph succeeds. Registry
+        // state is restored to this original snapshot
+        // if any later install fails.
         // ─────────────────────────────────────
+
+        let originalApplication =
+            try registry.register(
+                game
+            )
+
+        var graphTransactions:
+            [DeferredInstall] = []
 
         var installed:
             [String] = []
 
-        for normalized
-            in orderedIds
-        {
-            guard let package =
-                    staged[
-                        normalized
-                    ]
+        do {
+            for normalized
+                in orderedIds
+            {
+                guard let package =
+                        staged[
+                            normalized
+                        ]
+                else {
+                    throw ReloadedIIDependencyInstallError
+                        .preflightStateLost(
+                            normalized
+                        )
+                }
+
+                let deferred =
+                    try deferredInstallMod(
+                        from:
+                            package.localURL,
+                        into:
+                            game
+                    )
+
+                graphTransactions.append(
+                    deferred
+                )
+
+                let installedNow =
+                    ReloadedIIModDiscovery
+                        .mods(
+                            under:
+                                modsRoot
+                        )
+
+                guard installedNow
+                        .contains(
+                            where: {
+                                $0.config.modId
+                                    .caseInsensitiveCompare(
+                                        package.modId
+                                    )
+                                    == .orderedSame
+                            }
+                        )
+                else {
+                    throw ReloadedIIDependencyInstallError
+                        .postInstallVerificationFailed(
+                            package.modId
+                        )
+                }
+
+                installed.append(
+                    package.modId
+                )
+            }
+
+            // Only now are individual filesystem
+            // backups no longer needed.
+            for deferred
+                in graphTransactions
+            {
+                deferred.commit()
+            }
+
+        } catch {
+            var rollbackMessages:
+                [String] = []
+
+            // Reverse installation order so dependents
+            // disappear before their dependencies.
+            for deferred
+                in graphTransactions.reversed()
+            {
+                do {
+                    try deferred.rollback()
+                } catch {
+                    rollbackMessages.append(
+                        error.localizedDescription
+                    )
+                }
+            }
+
+            // Every deferred install updates the same
+            // AppConfig incrementally. Restore the
+            // pre-graph snapshot after filesystem
+            // rollback.
+            do {
+                try registry.update(
+                    originalApplication
+                )
+            } catch {
+                rollbackMessages.append(
+                    "Application registry: "
+                    + error.localizedDescription
+                )
+            }
+
+            guard rollbackMessages.isEmpty
             else {
                 throw ReloadedIIDependencyInstallError
-                    .preflightStateLost(
-                        normalized
+                    .graphRollbackFailed(
+                        rollbackMessages
                     )
             }
 
-            try installMod(
-                from:
-                    package.localURL,
-                into:
-                    game
-            )
-
-            let installedNow =
-                ReloadedIIModDiscovery
-                    .mods(
-                        under:
-                            modsRoot
-                    )
-
-            guard installedNow
-                    .contains(
-                        where: {
-                            $0.config.modId
-                                .caseInsensitiveCompare(
-                                    package.modId
-                                )
-                                == .orderedSame
-                        }
-                    )
-            else {
-                throw ReloadedIIDependencyInstallError
-                    .postInstallVerificationFailed(
-                        package.modId
-                    )
-            }
-
-            installed.append(
-                package.modId
-            )
+            throw error
         }
 
         return installed
@@ -1302,6 +1372,19 @@ final class ReloadedIIModManager:
         from source: URL,
         into game: GameInstall
     ) throws {
+        let deferred =
+            try deferredInstallMod(
+                from: source,
+                into: game
+            )
+
+        deferred.commit()
+    }
+
+    private func deferredInstallMod(
+        from source: URL,
+        into game: GameInstall
+    ) throws -> DeferredInstall {
         let paths =
             ReloadedIIPaths(
                 game: game
@@ -1336,8 +1419,13 @@ final class ReloadedIIModManager:
                 fileManager: fm
             )
 
+        var retainWorkspace =
+            false
+
         defer {
-            workspace.cleanup()
+            if !retainWorkspace {
+                workspace.cleanup()
+            }
         }
 
         let packageRoot =
@@ -1349,9 +1437,8 @@ final class ReloadedIIModManager:
             )
 
         // Treat package contents as untrusted.
-        // Validate the copied/extracted tree
-        // before reading ModConfig.json or
-        // touching the real Mods directory.
+        // Validate the copied/extracted tree before
+        // reading ModConfig.json or touching Mods.
         try validatePackageTree(
             packageRoot
         )
@@ -1553,12 +1640,26 @@ final class ReloadedIIModManager:
                 updated
             )
 
-            transaction.commit()
+            // The caller now owns both the live
+            // filesystem transaction and workspace.
+            // The workspace contains the rollback
+            // backup, so it MUST survive this return.
+            retainWorkspace =
+                true
+
+            return DeferredInstall(
+                transaction:
+                    transaction,
+                workspace:
+                    workspace
+            )
 
         } catch {
             do {
                 try transaction.rollback()
             } catch {
+                workspace.cleanup()
+
                 throw ReloadedIIModError
                     .rollbackFailed(
                         error.localizedDescription
@@ -2391,6 +2492,64 @@ final class ReloadedIIModManager:
         }
     }
 
+    private final class DeferredInstall {
+
+        private let transaction:
+            InstallTransaction
+
+        // PackageWorkspace owns the transaction's
+        // backup path. Keep it alive until the graph
+        // decides to commit or roll back.
+        private let workspace:
+            PackageWorkspace
+
+        private var finished =
+            false
+
+        init(
+            transaction: InstallTransaction,
+            workspace: PackageWorkspace
+        ) {
+            self.transaction =
+                transaction
+
+            self.workspace =
+                workspace
+        }
+
+        func commit() {
+            guard !finished
+            else {
+                return
+            }
+
+            finished =
+                true
+
+            transaction.commit()
+            workspace.cleanup()
+        }
+
+        func rollback() throws {
+            guard !finished
+            else {
+                return
+            }
+
+            // Mark only after rollback succeeds so a
+            // caller can still report a real rollback
+            // failure rather than silently discarding
+            // the backup.
+            try transaction.rollback()
+
+            finished =
+                true
+
+            workspace.cleanup()
+        }
+    }
+
+
     private final class InstallTransaction {
 
         private let fm:
@@ -2994,6 +3153,7 @@ final class ReloadedIIModManager:
         case postInstallVerificationFailed(String)
         case recursiveDependencyCycle([String])
         case preflightStateLost(String)
+        case graphRollbackFailed([String])
 
         var errorDescription: String? {
             switch self {
@@ -3095,6 +3255,17 @@ final class ReloadedIIModManager:
                 The verified dependency package for \
                 \(modId) disappeared from the recursive \
                 acquisition plan before installation.
+                """
+
+            case .graphRollbackFailed(
+                let messages
+            ):
+                return """
+                Dependency graph installation failed, \
+                and one or more rollback operations \
+                also failed:
+
+                \(messages.joined(separator: "\n"))
                 """
             }
         }
