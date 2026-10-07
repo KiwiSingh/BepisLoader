@@ -158,153 +158,119 @@ final class ReloadedIIModManager:
                 )
         }
 
-        let enabledIds =
-            Set(
-                application.config
-                    .enabledMods
-                    .map {
-                        normalizedModId(
-                            $0
-                        )
-                    }
-            )
+        let plan =
+            ReloadedIIDependencyResolver
+                .shared
+                .plan(
+                    for:
+                        target.config.modId,
+                    installedMods:
+                        discovered,
+                    enabledModIds:
+                        application.config
+                            .enabledMods,
+                    applicationId:
+                        application.config.appId
+                )
 
         var sections:
             [String] = []
 
-        let requiredIds =
-            target.config
-                .modDependencies
-                .map {
-                    $0.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-                }
+        let required =
+            plan.resolutions
                 .filter {
-                    !$0.isEmpty
+                    $0.kind == .required
                 }
 
-        if requiredIds.isEmpty {
+        if required.isEmpty {
             sections.append(
-                "Required dependencies: None"
+                "Required dependency graph: None"
             )
         } else {
-            var lines:
-                [String] = []
-
-            for dependencyId
-                in requiredIds
-            {
-                let key =
-                    normalizedModId(
-                        dependencyId
-                    )
-
-                if let dependency =
-                        index[key]
-                {
-                    let compatible =
-                        supports(
-                            dependency.config,
-                            applicationId:
-                                application.config.appId
-                        )
-
-                    let enabled =
-                        enabledIds.contains(
-                            key
-                        )
-
-                    if !compatible {
-                        lines.append(
-                            "🔴 \(dependency.config.modId) — installed, incompatible"
-                        )
-                    } else if enabled {
-                        lines.append(
-                            "🟢 \(dependency.config.modId) — installed, enabled"
-                        )
-                    } else {
-                        lines.append(
-                            "🟡 \(dependency.config.modId) — installed, disabled"
-                        )
-                    }
-                } else {
-                    lines.append(
-                        "🔴 \(dependencyId) — missing"
-                    )
-                }
-            }
-
             sections.append(
                 """
-                Required dependencies:
-                \(lines.joined(separator: "\n"))
+                Required dependency graph:
+                \(dependencyResolutionLines(required))
                 """
             )
         }
 
-        let optionalIds =
-            target.config.optionalDependencies
-                .map {
-                    $0.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-                }
+        let optional =
+            plan.resolutions
                 .filter {
-                    !$0.isEmpty
+                    $0.kind == .optional
                 }
 
-        if !optionalIds.isEmpty {
-            var lines:
-                [String] = []
+        if !optional.isEmpty {
+            sections.append(
+                """
+                Optional dependency graph:
+                \(dependencyResolutionLines(optional))
+                """
+            )
+        }
 
-            for dependencyId
-                in optionalIds
-            {
-                let key =
-                    normalizedModId(
-                        dependencyId
-                    )
+        var resolutionLines:
+            [String] = []
 
-                if let dependency =
-                        index[key]
-                {
-                    let compatible =
-                        supports(
-                            dependency.config,
-                            applicationId:
-                                application.config.appId
-                        )
-
-                    let enabled =
-                        enabledIds.contains(
-                            key
-                        )
-
-                    if !compatible {
-                        lines.append(
-                            "⚠️ \(dependency.config.modId) — installed, incompatible"
-                        )
-                    } else if enabled {
-                        lines.append(
-                            "🟢 \(dependency.config.modId) — installed, enabled"
-                        )
-                    } else {
-                        lines.append(
-                            "🟡 \(dependency.config.modId) — installed, disabled"
-                        )
-                    }
-                } else {
-                    lines.append(
-                        "⚪ \(dependencyId) — not installed"
-                    )
-                }
+        if plan.isSatisfiableFromInstalledMods {
+            if plan.disabledRequired.isEmpty {
+                resolutionLines.append(
+                    "🟢 All required dependencies are satisfied."
+                )
+            } else {
+                resolutionLines.append(
+                    "🟡 All required dependencies are installed, but \(plan.disabledRequired.count) must be enabled."
+                )
             }
+        } else {
+            resolutionLines.append(
+                "🔴 Cannot currently satisfy all required dependencies from installed mods."
+            )
+        }
+
+        if !plan.missingRequired.isEmpty {
+            resolutionLines.append(
+                "• Missing required: \(plan.missingRequired.count)"
+            )
+        }
+
+        if !plan.incompatibleRequired.isEmpty {
+            resolutionLines.append(
+                "• Incompatible required: \(plan.incompatibleRequired.count)"
+            )
+        }
+
+        if !plan.disabledRequired.isEmpty {
+            resolutionLines.append(
+                "• Installed but disabled: \(plan.disabledRequired.count)"
+            )
+        }
+
+        sections.append(
+            """
+            Resolution:
+            \(resolutionLines.joined(separator: "\n"))
+            """
+        )
+
+        if plan.cycles.isEmpty {
+            sections.append(
+                "Dependency cycles: None"
+            )
+        } else {
+            let cycleLines =
+                plan.cycles.map {
+                    "⚠️ "
+                    + $0.modIds.joined(
+                        separator: " → "
+                    )
+                }
 
             sections.append(
                 """
-                Optional dependencies:
-                \(lines.joined(separator: "\n"))
+                Dependency cycles:
+                \(cycleLines.joined(separator: "\n"))
                 """
             )
         }
@@ -339,6 +305,52 @@ final class ReloadedIIModManager:
 
         \(sections.joined(separator: "\n\n"))
         """
+    }
+
+    private func dependencyResolutionLines(
+        _ resolutions:
+            [ReloadedIIDependencyResolution]
+    ) -> String {
+        resolutions
+            .map { resolution in
+                let indentation =
+                    String(
+                        repeating: "  ",
+                        count: max(
+                            0,
+                            resolution.depth - 1
+                        )
+                    )
+
+                let stateText: String
+
+                switch resolution.state {
+                case .installedEnabled:
+                    stateText =
+                        "🟢 installed, enabled"
+
+                case .installedDisabled:
+                    stateText =
+                        "🟡 installed, disabled"
+
+                case .incompatible:
+                    stateText =
+                        resolution.kind == .required
+                        ? "🔴 installed, incompatible"
+                        : "⚠️ installed, incompatible"
+
+                case .missing:
+                    stateText =
+                        resolution.kind == .required
+                        ? "🔴 missing"
+                        : "⚪ not installed"
+                }
+
+                return "\(indentation)• \(resolution.modId) — \(stateText)"
+            }
+            .joined(
+                separator: "\n"
+            )
     }
 
     func moveModUp(
