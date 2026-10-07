@@ -32,8 +32,11 @@ class GameDetailViewController: NSViewController {
     private let progressBar      = NSProgressIndicator()
     private let progressLabel    = NSTextField(labelWithString: "")
     private let modsHeader       = NSTextField(labelWithString: "MODS")
-    private let addModButton     = NSButton()
-    private let modTableView     = NSTableView()
+    private let addModButton      = NSButton()
+    private let moveModUpButton   = NSButton()
+    private let moveModDownButton = NSButton()
+    private let dependencyButton  = NSButton()
+    private let modTableView      = NSTableView()
     private let modScrollView    = NSScrollView()
     private let logHeader        = NSTextField(labelWithString: "LOG OUTPUT")
     private let logTextView      = NSTextView()
@@ -210,6 +213,31 @@ class GameDetailViewController: NSViewController {
         configureButton(addModButton, title: "+ Add Mod…", action: #selector(addModClicked))
         addModButton.controlSize = .small
 
+        configureButton(
+            moveModUpButton,
+            title: "↑",
+            action: #selector(moveSelectedModUp)
+        )
+        moveModUpButton.controlSize = .small
+        moveModUpButton.toolTip = "Move selected mod up"
+
+        configureButton(
+            moveModDownButton,
+            title: "↓",
+            action: #selector(moveSelectedModDown)
+        )
+        moveModDownButton.controlSize = .small
+        moveModDownButton.toolTip = "Move selected mod down"
+
+        configureButton(
+            dependencyButton,
+            title: "Dependencies…",
+            action: #selector(showSelectedModDependencies)
+        )
+        dependencyButton.controlSize = .small
+        dependencyButton.toolTip =
+            "Inspect Reloaded-II dependencies"
+
         // Mod table
         let nameCol    = NSTableColumn(identifier: .init("name"))
         nameCol.title  = "Mod"
@@ -256,7 +284,16 @@ class GameDetailViewController: NSViewController {
         logScrollView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(logScrollView)
 
-        let modHeaderStack = NSStackView(views: [modsHeader, NSView(), addModButton])
+        let modHeaderStack = NSStackView(
+            views: [
+                modsHeader,
+                NSView(),
+                moveModUpButton,
+                moveModDownButton,
+                dependencyButton,
+                addModButton
+            ]
+        )
         modHeaderStack.orientation = .horizontal
         modHeaderStack.distribution = .fill
         modHeaderStack.translatesAutoresizingMaskIntoConstraints = false
@@ -700,6 +737,22 @@ let installation = frameworkInstallation(
         modsHeader.stringValue =
             "\(selectedFramework.rawValue.uppercased()) MODS"
 
+        let showsLoadOrderControls =
+            selectedFramework
+                == .reloadedII
+            && installation.isInstalled
+
+        moveModUpButton.isHidden =
+            !showsLoadOrderControls
+
+        moveModDownButton.isHidden =
+            !showsLoadOrderControls
+
+        dependencyButton.isHidden =
+            !showsLoadOrderControls
+
+        updateLoadOrderButtonState()
+
         addModButton.isEnabled =
             installation.isInstalled
 
@@ -947,6 +1000,13 @@ let installation = frameworkInstallation(
 
 extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
 
+    func tableViewSelectionDidChange(
+        _ notification: Notification
+    ) {
+        updateLoadOrderButtonState()
+    }
+
+
     func numberOfRows(in tableView: NSTableView) -> Int { mods.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -1084,18 +1144,251 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     @objc private func modToggled(_ sender: NSButton) {
-        guard let game = game, mods.indices.contains(sender.tag) else { return }
-        var mod = mods[sender.tag]
-        mod.isEnabled = sender.state == .on
-        mods[sender.tag] = mod
+        guard let game = game,
+              mods.indices.contains(sender.tag)
+        else {
+            return
+        }
+
+        let mod =
+            mods[sender.tag]
+
+        let requestedState =
+            sender.state == .on
+
         do {
-            try selectedModManager.setModEnabled(
-                mod.isEnabled,
-                mod: mod,
-                in: game
-            )
+            try selectedModManager
+                .setModEnabled(
+                    requestedState,
+                    mod: mod,
+                    in: game
+                )
+
+            // Reload from the framework rather than
+            // assuming only the clicked mod changed.
+            // Reloaded-II may activate required
+            // dependencies as part of this operation.
+            mods =
+                selectedModManager
+                    .installedMods(
+                        for: game
+                    )
+
+            modTableView.reloadData()
+            updateLoadOrderButtonState()
+
         } catch {
-            showAlert("Could not toggle mod:\n\(error.localizedDescription)", style: .warning)
+            // Restore canonical on-disk state. This
+            // also puts the checkbox back where it
+            // belongs after a rejected disable.
+            mods =
+                selectedModManager
+                    .installedMods(
+                        for: game
+                    )
+
+            modTableView.reloadData()
+            updateLoadOrderButtonState()
+
+            showAlert(
+                "Could not toggle mod:\n\(error.localizedDescription)",
+                style: .warning
+            )
+        }
+    }
+
+    private func updateLoadOrderButtonState() {
+        guard selectedFramework
+                == .reloadedII,
+              let game,
+              ReloadedIIProvider.shared
+                .detect(
+                    in: game
+                )
+                .isInstalled
+        else {
+            moveModUpButton.isEnabled =
+                false
+
+            moveModDownButton.isEnabled =
+                false
+
+            dependencyButton.isEnabled =
+                false
+
+            return
+        }
+
+        let row =
+            modTableView.selectedRow
+
+        guard mods.indices
+                .contains(row)
+        else {
+            moveModUpButton.isEnabled =
+                false
+
+            moveModDownButton.isEnabled =
+                false
+
+            dependencyButton.isEnabled =
+                false
+
+            return
+        }
+
+        moveModUpButton.isEnabled =
+            row > 0
+
+        moveModDownButton.isEnabled =
+            row < mods.count - 1
+
+        dependencyButton.isEnabled =
+            true
+    }
+
+    @objc private func showSelectedModDependencies() {
+        guard selectedFramework
+                == .reloadedII,
+              let game
+        else {
+            return
+        }
+
+        let row =
+            modTableView.selectedRow
+
+        guard mods.indices
+                .contains(row)
+        else {
+            return
+        }
+
+        do {
+            let summary =
+                try ReloadedIIModManager
+                    .shared
+                    .dependencySummary(
+                        for: mods[row],
+                        in: game
+                    )
+
+            let alert =
+                NSAlert()
+
+            alert.messageText =
+                "Reloaded-II Dependencies"
+
+            alert.informativeText =
+                summary
+
+            alert.alertStyle =
+                .informational
+
+            alert.addButton(
+                withTitle: "OK"
+            )
+
+            alert.runModal()
+
+        } catch {
+            showAlert(
+                "Could not inspect dependencies:\n\(error.localizedDescription)",
+                style: .warning
+            )
+        }
+    }
+
+    @objc private func moveSelectedModUp() {
+        moveSelectedReloadedIIMod(
+            direction: -1
+        )
+    }
+
+    @objc private func moveSelectedModDown() {
+        moveSelectedReloadedIIMod(
+            direction: 1
+        )
+    }
+
+    private func moveSelectedReloadedIIMod(
+        direction: Int
+    ) {
+        guard selectedFramework
+                == .reloadedII,
+              let game
+        else {
+            return
+        }
+
+        let row =
+            modTableView.selectedRow
+
+        guard mods.indices
+                .contains(row)
+        else {
+            return
+        }
+
+        let mod =
+            mods[row]
+
+        do {
+            if direction < 0 {
+                try ReloadedIIModManager
+                    .shared
+                    .moveModUp(
+                        mod,
+                        in: game
+                    )
+            } else {
+                try ReloadedIIModManager
+                    .shared
+                    .moveModDown(
+                        mod,
+                        in: game
+                    )
+            }
+
+            mods =
+                ReloadedIIModManager
+                    .shared
+                    .installedMods(
+                        for: game
+                    )
+
+            modTableView.reloadData()
+
+            if let newIndex =
+                    mods.firstIndex(
+                        where: {
+                            $0.id
+                                .caseInsensitiveCompare(
+                                    mod.id
+                                )
+                                == .orderedSame
+                        }
+                    )
+            {
+                modTableView.selectRowIndexes(
+                    IndexSet(
+                        integer:
+                            newIndex
+                    ),
+                    byExtendingSelection:
+                        false
+                )
+            }
+
+            updateLoadOrderButtonState()
+
+        } catch {
+            showAlert(
+                "Could not reorder mod:\n\(error.localizedDescription)",
+                style: .warning
+            )
+
+            updateLoadOrderButtonState()
         }
     }
 

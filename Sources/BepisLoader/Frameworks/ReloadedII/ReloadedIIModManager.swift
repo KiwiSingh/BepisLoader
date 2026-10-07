@@ -103,6 +103,457 @@ final class ReloadedIIModManager:
 
     // ── Installation ──────────────────────────
 
+    // MARK: - Dependency Inspector
+
+    func dependencySummary(
+        for mod: InstalledMod,
+        in game: GameInstall
+    ) throws -> String {
+        guard mod.framework
+                == .reloadedII
+        else {
+            throw ReloadedIIModError
+                .wrongFramework
+        }
+
+        let paths =
+            ReloadedIIPaths(
+                game: game
+            )
+
+        guard let modsRoot =
+                paths.mods
+        else {
+            throw ReloadedIIModError
+                .frameworkNotInstalled
+        }
+
+        let application =
+            try registry.register(
+                game
+            )
+
+        let discovered =
+            ReloadedIIModDiscovery
+                .mods(
+                    under: modsRoot
+                )
+
+        let index =
+            modIndex(
+                discovered
+            )
+
+        let targetKey =
+            normalizedModId(
+                mod.id
+            )
+
+        guard let target =
+                index[targetKey]
+        else {
+            throw ReloadedIIModError
+                .modNotFound(
+                    mod.id
+                )
+        }
+
+        let enabledIds =
+            Set(
+                application.config
+                    .enabledMods
+                    .map {
+                        normalizedModId(
+                            $0
+                        )
+                    }
+            )
+
+        var sections:
+            [String] = []
+
+        let requiredIds =
+            target.config
+                .modDependencies
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter {
+                    !$0.isEmpty
+                }
+
+        if requiredIds.isEmpty {
+            sections.append(
+                "Required dependencies: None"
+            )
+        } else {
+            var lines:
+                [String] = []
+
+            for dependencyId
+                in requiredIds
+            {
+                let key =
+                    normalizedModId(
+                        dependencyId
+                    )
+
+                if let dependency =
+                        index[key]
+                {
+                    let compatible =
+                        supports(
+                            dependency.config,
+                            applicationId:
+                                application.config.appId
+                        )
+
+                    let enabled =
+                        enabledIds.contains(
+                            key
+                        )
+
+                    if !compatible {
+                        lines.append(
+                            "🔴 \(dependency.config.modId) — installed, incompatible"
+                        )
+                    } else if enabled {
+                        lines.append(
+                            "🟢 \(dependency.config.modId) — installed, enabled"
+                        )
+                    } else {
+                        lines.append(
+                            "🟡 \(dependency.config.modId) — installed, disabled"
+                        )
+                    }
+                } else {
+                    lines.append(
+                        "🔴 \(dependencyId) — missing"
+                    )
+                }
+            }
+
+            sections.append(
+                """
+                Required dependencies:
+                \(lines.joined(separator: "\n"))
+                """
+            )
+        }
+
+        let optionalIds =
+            target.config.optionalDependencies
+                .map {
+                    $0.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                }
+                .filter {
+                    !$0.isEmpty
+                }
+
+        if !optionalIds.isEmpty {
+            var lines:
+                [String] = []
+
+            for dependencyId
+                in optionalIds
+            {
+                let key =
+                    normalizedModId(
+                        dependencyId
+                    )
+
+                if let dependency =
+                        index[key]
+                {
+                    let compatible =
+                        supports(
+                            dependency.config,
+                            applicationId:
+                                application.config.appId
+                        )
+
+                    let enabled =
+                        enabledIds.contains(
+                            key
+                        )
+
+                    if !compatible {
+                        lines.append(
+                            "⚠️ \(dependency.config.modId) — installed, incompatible"
+                        )
+                    } else if enabled {
+                        lines.append(
+                            "🟢 \(dependency.config.modId) — installed, enabled"
+                        )
+                    } else {
+                        lines.append(
+                            "🟡 \(dependency.config.modId) — installed, disabled"
+                        )
+                    }
+                } else {
+                    lines.append(
+                        "⚪ \(dependencyId) — not installed"
+                    )
+                }
+            }
+
+            sections.append(
+                """
+                Optional dependencies:
+                \(lines.joined(separator: "\n"))
+                """
+            )
+        }
+
+        let dependents =
+            enabledDependents(
+                of:
+                    target.config.modId,
+                installedMods:
+                    discovered,
+                enabledModIds:
+                    application.config
+                        .enabledMods
+            )
+
+        if dependents.isEmpty {
+            sections.append(
+                "Enabled dependents: None"
+            )
+        } else {
+            sections.append(
+                """
+                Enabled mods that depend on this mod:
+                \(dependents.map { "• \($0)" }.joined(separator: "\n"))
+                """
+            )
+        }
+
+        return """
+        \(target.config.modName.isEmpty ? target.config.modId : target.config.modName)
+        Mod ID: \(target.config.modId)
+
+        \(sections.joined(separator: "\n\n"))
+        """
+    }
+
+    func moveModUp(
+        _ mod: InstalledMod,
+        in game: GameInstall
+    ) throws {
+        try moveReloadedIIMod(
+            mod,
+            direction: -1,
+            in: game
+        )
+    }
+
+    func moveModDown(
+        _ mod: InstalledMod,
+        in game: GameInstall
+    ) throws {
+        try moveReloadedIIMod(
+            mod,
+            direction: 1,
+            in: game
+        )
+    }
+
+    private func moveReloadedIIMod(
+        _ mod: InstalledMod,
+        direction: Int,
+        in game: GameInstall
+    ) throws {
+        guard mod.framework
+                == .reloadedII
+        else {
+            throw ReloadedIIModError
+                .wrongFramework
+        }
+
+        guard direction == -1
+                || direction == 1
+        else {
+            return
+        }
+
+        let paths =
+            ReloadedIIPaths(
+                game: game
+            )
+
+        guard let modsRoot =
+                paths.mods
+        else {
+            throw ReloadedIIModError
+                .frameworkNotInstalled
+        }
+
+        let application =
+            try registry.register(
+                game
+            )
+
+        let discovered =
+            ReloadedIIModDiscovery
+                .mods(
+                    under: modsRoot
+                )
+
+        guard let target =
+                discovered.first(
+                    where: {
+                        normalizedModId(
+                            $0.config.modId
+                        )
+                        ==
+                        normalizedModId(
+                            mod.id
+                        )
+                    }
+                )
+        else {
+            throw ReloadedIIModError
+                .modNotFound(
+                    mod.id
+                )
+        }
+
+        let orderedIds =
+            canonicalSortedModIds(
+                discoveredMods:
+                    discovered,
+                configuredOrder:
+                    application
+                        .config
+                        .sortedMods
+            )
+
+        guard let currentIndex =
+                orderedIds.firstIndex(
+                    where: {
+                        normalizedModId($0)
+                        ==
+                        normalizedModId(
+                            target.config.modId
+                        )
+                    }
+                )
+        else {
+            throw ReloadedIIModError
+                .modNotFound(
+                    mod.id
+                )
+        }
+
+        let destinationIndex =
+            currentIndex
+            + direction
+
+        guard orderedIds.indices
+                .contains(
+                    destinationIndex
+                )
+        else {
+            return
+        }
+
+        var reordered =
+            orderedIds
+
+        reordered.swapAt(
+            currentIndex,
+            destinationIndex
+        )
+
+        var updated =
+            application.config
+
+        updated.sortedMods =
+            reordered
+
+        var updatedApplication = application
+        updatedApplication.config = updated
+        try registry.update(updatedApplication)
+    }
+
+    private func canonicalSortedModIds(
+        discoveredMods:
+            [ReloadedIIDiscoveredMod],
+        configuredOrder:
+            [String]
+    ) -> [String] {
+        let canonicalByNormalizedId =
+            Dictionary(
+                uniqueKeysWithValues:
+                    discoveredMods.map {
+                        (
+                            normalizedModId(
+                                $0.config.modId
+                            ),
+                            $0.config.modId
+                        )
+                    }
+            )
+
+        var result:
+            [String] = []
+
+        var seen =
+            Set<String>()
+
+        for configuredId
+            in configuredOrder
+        {
+            let normalized =
+                normalizedModId(
+                    configuredId
+                )
+
+            guard let canonical =
+                    canonicalByNormalizedId[
+                        normalized
+                    ],
+                  seen.insert(
+                    normalized
+                  ).inserted
+            else {
+                continue
+            }
+
+            result.append(
+                canonical
+            )
+        }
+
+        let remaining =
+            discoveredMods
+                .map {
+                    $0.config.modId
+                }
+                .filter {
+                    !seen.contains(
+                        normalizedModId($0)
+                    )
+                }
+                .sorted {
+                    $0.localizedCaseInsensitiveCompare(
+                        $1
+                    ) == .orderedAscending
+                }
+
+        result.append(
+            contentsOf:
+                remaining
+        )
+
+        return result
+    }
+
     func installMod(
         from source: URL,
         into game: GameInstall
