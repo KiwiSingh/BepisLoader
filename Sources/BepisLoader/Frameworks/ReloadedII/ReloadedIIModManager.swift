@@ -153,6 +153,14 @@ final class ReloadedIIModManager:
                 in: workspace
             )
 
+        // Treat package contents as untrusted.
+        // Validate the copied/extracted tree
+        // before reading ModConfig.json or
+        // touching the real Mods directory.
+        try validatePackageTree(
+            packageRoot
+        )
+
         let packageMods:
             [ReloadedIIDiscoveredMod]
 
@@ -183,6 +191,20 @@ final class ReloadedIIModManager:
 
         let modConfig =
             packageMod.config
+
+        guard isContained(
+            packageMod.directory,
+            within: packageRoot
+        ),
+        isContained(
+            packageMod.configURL,
+            within: packageRoot
+        ) else {
+            throw ReloadedIIModError
+                .unsafePackageEntry(
+                    packageMod.directory.path
+                )
+        }
 
         guard supports(
             modConfig,
@@ -218,11 +240,14 @@ final class ReloadedIIModManager:
                     ) == .orderedSame
             }
 
+        let destinationName =
+            try validatedModDirectoryName(
+                for: modConfig.modId
+            )
+
         let destination =
             modsRoot.appendingPathComponent(
-                safeDirectoryName(
-                    for: modConfig.modId
-                ),
+                destinationName,
                 isDirectory: true
             )
 
@@ -1356,36 +1381,229 @@ final class ReloadedIIModManager:
         }
     }
 
-    private func safeDirectoryName(
+    private func validatedModDirectoryName(
         for modId: String
-    ) -> String {
-        let invalid =
-            CharacterSet(
-                charactersIn:
-                    "/\\:"
-            )
-            .union(
-                .controlCharacters
+    ) throws -> String {
+        let trimmed =
+            modId.trimmingCharacters(
+                in: .whitespacesAndNewlines
             )
 
-        let sanitized =
-            modId
-                .components(
-                    separatedBy: invalid
-                )
-                .filter {
-                    !$0.isEmpty
+        guard !trimmed.isEmpty,
+              trimmed == modId,
+              trimmed != ".",
+              trimmed != "..",
+              !trimmed.contains("/"),
+              !trimmed.contains("\\"),
+              !trimmed.contains(":"),
+              !trimmed.unicodeScalars.contains(
+                where: {
+                    CharacterSet
+                        .controlCharacters
+                        .contains($0)
                 }
-                .joined(
-                    separator: "_"
+              )
+        else {
+            // Reject instead of sanitizing.
+            // Distinct ModIds must never collapse
+            // onto the same physical directory.
+            throw ReloadedIIModError
+                .unsafeModId(
+                    modId
                 )
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                )
+        }
 
-        return sanitized.isEmpty
-            ? "ReloadedMod"
-            : sanitized
+        return trimmed
+    }
+
+    private func validatePackageTree(
+        _ root: URL
+    ) throws {
+        let rootURL =
+            root.standardizedFileURL
+
+        var rootIsDirectory:
+            ObjCBool = false
+
+        guard fm.fileExists(
+            atPath: rootURL.path,
+            isDirectory:
+                &rootIsDirectory
+        ),
+        rootIsDirectory.boolValue else {
+            throw ReloadedIIModError
+                .invalidPackage(
+                    "Package root is not a directory."
+                )
+        }
+
+        let keys:
+            Set<URLResourceKey> = [
+                .isSymbolicLinkKey
+            ]
+
+        var enumerationError:
+            Error?
+
+        guard let enumerator =
+                fm.enumerator(
+                    at: rootURL,
+                    includingPropertiesForKeys:
+                        Array(keys),
+                    options: [],
+                    errorHandler: {
+                        _, error in
+
+                        enumerationError =
+                            error
+
+                        return false
+                    }
+                )
+        else {
+            throw ReloadedIIModError
+                .invalidPackage(
+                    "Could not enumerate package contents."
+                )
+        }
+
+        while let entry =
+                enumerator.nextObject()
+                    as? URL
+        {
+            if let error =
+                    enumerationError
+            {
+                throw ReloadedIIModError
+                    .invalidPackage(
+                        error.localizedDescription
+                    )
+            }
+
+            let standardized =
+                entry.standardizedFileURL
+
+            guard isContained(
+                standardized,
+                within: rootURL
+            ) else {
+                throw ReloadedIIModError
+                    .unsafePackageEntry(
+                        entry.path
+                    )
+            }
+
+            let values:
+                URLResourceValues
+
+            do {
+                values =
+                    try entry.resourceValues(
+                        forKeys: keys
+                    )
+            } catch {
+                throw ReloadedIIModError
+                    .unsafePackageEntry(
+                        entry.path
+                    )
+            }
+
+            guard values.isSymbolicLink
+                    == true
+            else {
+                continue
+            }
+
+            let destination:
+                String
+
+            do {
+                destination =
+                    try fm.destinationOfSymbolicLink(
+                        atPath:
+                            entry.path
+                    )
+            } catch {
+                throw ReloadedIIModError
+                    .unsafePackageEntry(
+                        entry.path
+                    )
+            }
+
+            let resolved:
+                URL
+
+            if destination.hasPrefix("/") {
+                resolved =
+                    URL(
+                        fileURLWithPath:
+                            destination
+                    )
+                    .standardizedFileURL
+            } else {
+                resolved =
+                    entry
+                        .deletingLastPathComponent()
+                        .appendingPathComponent(
+                            destination
+                        )
+                        .standardizedFileURL
+            }
+
+            // Links must resolve to an existing
+            // target inside this package tree.
+            // This rejects absolute escapes,
+            // relative ".." escapes and broken
+            // links before installation begins.
+            guard isContained(
+                resolved,
+                within: rootURL
+            ),
+            fm.fileExists(
+                atPath:
+                    resolved.path
+            ) else {
+                throw ReloadedIIModError
+                    .unsafePackageEntry(
+                        entry.path
+                    )
+            }
+        }
+
+        if let error =
+                enumerationError
+        {
+            throw ReloadedIIModError
+                .invalidPackage(
+                    error.localizedDescription
+                )
+        }
+    }
+
+    private func isContained(
+        _ candidate: URL,
+        within root: URL
+    ) -> Bool {
+        let rootPath =
+            root.standardizedFileURL
+                .path
+
+        let candidatePath =
+            candidate.standardizedFileURL
+                .path
+
+        if candidatePath == rootPath {
+            return true
+        }
+
+        let prefix =
+            rootPath.hasSuffix("/")
+            ? rootPath
+            : rootPath + "/"
+
+        return candidatePath.hasPrefix(
+            prefix
+        )
     }
 
     private func transactionalInstall(
@@ -1581,6 +1799,8 @@ final class ReloadedIIModManager:
         )
         case sourceNotFound
         case unsupportedPackageType
+        case unsafePackageEntry(String)
+        case unsafeModId(String)
         case invalidPackage(String)
         case ambiguousPackage([String])
         case archiveExtractionFailed(String)
@@ -1616,6 +1836,27 @@ final class ReloadedIIModManager:
                 Reloaded-II mods must be \
                 installed from a folder or \
                 ZIP archive
+                """
+
+            case .unsafePackageEntry(
+                let path
+            ):
+                return """
+                Reloaded-II package contains an \
+                unsafe or broken filesystem entry:
+
+                \(path)
+                """
+
+            case .unsafeModId(
+                let modId
+            ):
+                return """
+                Reloaded-II ModId cannot safely \
+                be used as a single Mods \
+                directory name:
+
+                \(modId)
                 """
 
             case .invalidPackage(
