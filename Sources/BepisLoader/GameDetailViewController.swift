@@ -35,7 +35,7 @@ class GameDetailViewController: NSViewController {
     private let logTextView      = NSTextView()
     private let logScrollView    = NSScrollView()
 
-    private var mods: [Mod] = []
+    private var mods: [InstalledMod] = []
     private var runningProcess: Process?
     private var logObserver: NSObjectProtocol?
 
@@ -342,7 +342,7 @@ class GameDetailViewController: NSViewController {
                 statusLabel.textColor   = .systemGreen
                 installButton.title = "Install BepisLoader"
             }
-            mods = BepInExModManager.shared.listMods(for: game)
+            mods = BepInExModManager.shared.installedMods(for: game)
             modTableView.reloadData()
         case .incompatible(let r):
             statusLabel.stringValue = "🔴 Incompatible: \(r)"
@@ -432,7 +432,7 @@ class GameDetailViewController: NSViewController {
             guard response == .OK else { return }
             for url in panel.urls {
                 do {
-                    try BepInExModManager.shared.install(mod: url, into: game)
+                    try BepInExModManager.shared.installMod(from: url, into: game)
                 } catch {
                     self?.showAlert("Failed to install \(url.lastPathComponent):\n\(error.localizedDescription)", style: .warning)
                 }
@@ -505,7 +505,7 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
             ])
 
         case "ver":
-            let label = NSTextField(labelWithString: mod.version)
+            let label = NSTextField(labelWithString: mod.version ?? "?")
             label.font = NSFont.systemFont(ofSize: 11)
             label.textColor = .secondaryLabelColor
             label.translatesAutoresizingMaskIntoConstraints = false
@@ -537,7 +537,7 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
         mod.isEnabled = sender.state == .on
         mods[sender.tag] = mod
         do {
-            try BepInExModManager.shared.setEnabled(mod.isEnabled, mod: mod, in: game)
+            try BepInExModManager.shared.setModEnabled(mod.isEnabled, mod: mod, in: game)
         } catch {
             showAlert("Could not toggle mod:\n\(error.localizedDescription)", style: .warning)
         }

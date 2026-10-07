@@ -17,7 +17,7 @@ final class BepInExModManager: ModManaging {
 
     // ── Installed mod list ─────────────────────
 
-    func listMods(for game: GameInstall) -> [Mod] {
+    func installedMods(for game: GameInstall) -> [InstalledMod] {
         guard fm.fileExists(atPath: game.pluginsFolder.path) else { return [] }
 
         let contents = (try? fm.contentsOfDirectory(
@@ -28,13 +28,13 @@ final class BepInExModManager: ModManaging {
 
         return contents
             .filter { $0.pathExtension.lowercased() == "dll" || isModFolder($0) }
-            .compactMap { modFrom(url: $0) }
+            .compactMap { installedMod(from: $0) }
     }
 
     // ── Install ────────────────────────────────
 
     /// Installs a mod DLL (or a mod folder) into the game's plugins directory.
-    func install(mod dllURL: URL, into game: GameInstall) throws {
+    func installMod(from dllURL: URL, into game: GameInstall) throws {
         let isScoped = dllURL.startAccessingSecurityScopedResource()
         defer { if isScoped { dllURL.stopAccessingSecurityScopedResource() } }
 
@@ -52,17 +52,10 @@ final class BepInExModManager: ModManaging {
         print("[BepisLoader] Successfully installed mod to: \(dest.path)")
     }
 
-    /// Installs all enabled BepInEx mods from a list.
-    func installAll(_ mods: [Mod], into game: GameInstall) throws {
-        for mod in mods where mod.isEnabled {
-            try install(mod: mod.dllPath, into: game)
-        }
-    }
-
     // ── Remove ─────────────────────────────────
 
-    func remove(mod: Mod, from game: GameInstall) throws {
-        let target = game.pluginsFolder.appendingPathComponent(mod.dllPath.lastPathComponent)
+    func removeMod(_ mod: InstalledMod, from game: GameInstall) throws {
+        let target = game.pluginsFolder.appendingPathComponent(mod.path.lastPathComponent)
         if fm.fileExists(atPath: target.path) {
             try fm.removeItem(at: target)
         }
@@ -77,10 +70,10 @@ final class BepInExModManager: ModManaging {
     // BepInEx respects the .disabled extension convention used by some loaders.
     // More reliably: we move the DLL to/from a "disabled" subfolder.
 
-    func setEnabled(_ enabled: Bool, mod: Mod, in game: GameInstall) throws {
-        let activePath   = game.pluginsFolder.appendingPathComponent(mod.dllPath.lastPathComponent)
+    func setModEnabled(_ enabled: Bool, mod: InstalledMod, in game: GameInstall) throws {
+        let activePath   = game.pluginsFolder.appendingPathComponent(mod.path.lastPathComponent)
         let disabledDir  = game.pluginsFolder.appendingPathComponent(".disabled")
-        let disabledPath = disabledDir.appendingPathComponent(mod.dllPath.lastPathComponent)
+        let disabledPath = disabledDir.appendingPathComponent(mod.path.lastPathComponent)
 
         if enabled {
             // Move from disabled → active
@@ -131,76 +124,26 @@ final class BepInExModManager: ModManaging {
         return nil
     }
 
-    // ── Generic mod-management API ──────────────
-    //
-    // These adapters expose BepInEx plugins through the
-    // framework-neutral ModManaging interface while the
-    // existing Mod-based API remains available to the UI
-    // during migration.
-
-    func installedMods(for game: GameInstall) -> [InstalledMod] {
-        listMods(for: game).map { mod in
-            InstalledMod(
-                id: mod.id.uuidString,
-                name: mod.name,
-                version: mod.version == "?" ? nil : mod.version,
-                author: mod.author == "Unknown" ? nil : mod.author,
-                description: mod.description,
-                framework: framework,
-                path: mod.dllPath,
-                isEnabled: mod.isEnabled
-            )
-        }
-    }
-
-    func installMod(from source: URL, into game: GameInstall) throws {
-        try install(mod: source, into: game)
-    }
-
-    func removeMod(_ mod: InstalledMod, from game: GameInstall) throws {
-        let legacyMod = legacyMod(from: mod)
-        try remove(mod: legacyMod, from: game)
-    }
-
-    func setModEnabled(
-        _ enabled: Bool,
-        mod: InstalledMod,
-        in game: GameInstall
-    ) throws {
-        let legacyMod = legacyMod(from: mod)
-        try setEnabled(enabled, mod: legacyMod, in: game)
-    }
-
-    private func legacyMod(from mod: InstalledMod) -> Mod {
-        var legacyMod = Mod(
-            name: mod.name,
-            version: mod.version ?? "?",
-            author: mod.author ?? "Unknown",
-            description: mod.description,
-            dllPath: mod.path
-        )
-
-        legacyMod.isEnabled = mod.isEnabled
-        return legacyMod
-    }
-
     // ── Helpers ────────────────────────────────
 
-    private func modFrom(url: URL) -> Mod? {
+    private func installedMod(from url: URL) -> InstalledMod? {
         let name = url.deletingPathExtension().lastPathComponent
         let meta = readMetadata(from: url)
-        
+
         var finalName = meta?.name ?? name
         if finalName.lowercased() == "release" || finalName.lowercased() == "debug" {
             finalName = name
         }
-        
-        return Mod(
-            name:        finalName,
-            version:     meta?.version ?? "?",
-            author:      "Unknown",
+
+        return InstalledMod(
+            id: meta?.guid ?? url.path,
+            name: finalName,
+            version: meta?.version,
+            author: nil,
             description: "",
-            dllPath:     url
+            framework: framework,
+            path: url,
+            isEnabled: true
         )
     }
 

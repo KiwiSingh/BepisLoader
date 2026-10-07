@@ -124,22 +124,3 @@ struct GameInstall: Identifiable, Hashable, Codable {
 }
 
 /// A BepInEx mod (plugin DLL + metadata)
-struct Mod: Identifiable {
-    let id: UUID
-    let name: String
-    let version: String
-    let author: String
-    let description: String
-    let dllPath: URL          // source DLL (on the macOS side)
-    var isEnabled: Bool
-
-    init(name: String, version: String, author: String, description: String, dllPath: URL) {
-        self.id          = UUID()
-        self.name        = name
-        self.version     = version
-        self.author      = author
-        self.description = description
-        self.dllPath     = dllPath
-        self.isEnabled   = true
-    }
-}
