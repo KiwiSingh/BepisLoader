@@ -105,6 +105,180 @@ final class ReloadedIIModManager:
 
     // MARK: - Dependency Inspector
 
+    func dependencyAcquisitionSummary(
+        for mod: InstalledMod,
+        in game: GameInstall
+    ) async throws -> String {
+        guard mod.framework == .reloadedII
+        else {
+            return
+                "Dependency acquisition is only available for Reloaded-II mods."
+        }
+
+        let paths =
+            ReloadedIIPaths(
+                game: game
+            )
+
+        guard let modsRoot =
+                paths.mods,
+              fm.fileExists(
+                atPath:
+                    modsRoot.path
+              )
+        else {
+            return
+                "Reloaded-II is not installed for this game."
+        }
+
+        let application =
+            try registry.register(
+                game
+            )
+
+        let discovered =
+            ReloadedIIModDiscovery
+                .mods(
+                    under: modsRoot
+                )
+
+        let index =
+            modIndex(
+                discovered
+            )
+
+        guard let target =
+                index[
+                    normalizedModId(
+                        mod.id
+                    )
+                ]
+        else {
+            return
+                "The selected Reloaded-II mod could not be found."
+        }
+
+        let dependencyPlan =
+            ReloadedIIDependencyResolver
+                .shared
+                .plan(
+                    for:
+                        target.config.modId,
+                    installedMods:
+                        discovered,
+                    enabledModIds:
+                        application.config
+                            .enabledMods,
+                    applicationId:
+                        application.config
+                            .appId
+                )
+
+        guard !dependencyPlan
+                .missingRequired
+                .isEmpty
+        else {
+            return
+                "No required dependencies are missing."
+        }
+
+        let acquisitionPlan =
+            await ReloadedIIDependencyAcquisitionService
+                .shared
+                .plan(
+                    for:
+                        dependencyPlan
+                )
+
+        var lines: [String] = [
+            "Official Index Lookup",
+            ""
+        ]
+
+        for resolution
+            in acquisitionPlan.dependencies
+        {
+            let modId =
+                resolution
+                    .dependency
+                    .modId
+
+            guard !resolution
+                    .candidates
+                    .isEmpty
+            else {
+                lines.append(
+                    "❌ \(modId)"
+                )
+
+                lines.append(
+                    "   No acquisition source found."
+                )
+
+                continue
+            }
+
+            lines.append(
+                "📦 \(modId)"
+            )
+
+            for candidate
+                in resolution.candidates
+            {
+                var detail =
+                    "   • \(candidate.sourceName)"
+
+                if let version =
+                        candidate.version,
+                   !version.isEmpty
+                {
+                    detail +=
+                        " — \(version)"
+                }
+
+                lines.append(
+                    detail
+                )
+
+                if let packageURL =
+                        candidate.packageURL
+                {
+                    lines.append(
+                        "     \(packageURL.absoluteString)"
+                    )
+                }
+            }
+        }
+
+        lines.append(
+            ""
+        )
+
+        if acquisitionPlan
+            .isFullyResolvable
+        {
+            lines.append(
+                "🟢 All missing required dependencies were found in configured acquisition sources."
+            )
+        } else {
+            lines.append(
+                "🔴 Some required dependencies could not be resolved."
+            )
+        }
+
+        lines.append(
+            ""
+        )
+
+        lines.append(
+            "Nothing has been downloaded or installed."
+        )
+
+        return lines.joined(
+            separator: "\n"
+        )
+    }
+
     func dependencySummary(
         for mod: InstalledMod,
         in game: GameInstall

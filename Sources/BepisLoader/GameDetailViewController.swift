@@ -1264,12 +1264,15 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
             return
         }
 
+        let selectedMod =
+            mods[row]
+
         do {
             let summary =
                 try ReloadedIIModManager
                     .shared
                     .dependencySummary(
-                        for: mods[row],
+                        for: selectedMod,
                         in: game
                     )
 
@@ -1296,6 +1299,59 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
                 "Could not inspect dependencies:\n\(error.localizedDescription)",
                 style: .warning
             )
+
+            return
+        }
+
+        Task { [weak self] in
+            guard let self
+            else {
+                return
+            }
+
+            do {
+                let summary =
+                    try await ReloadedIIModManager
+                        .shared
+                        .dependencyAcquisitionSummary(
+                            for: selectedMod,
+                            in: game
+                        )
+
+                guard summary
+                        != "No required dependencies are missing."
+                else {
+                    return
+                }
+
+                await MainActor.run {
+                    let alert =
+                        NSAlert()
+
+                    alert.messageText =
+                        "Dependency Acquisition"
+
+                    alert.informativeText =
+                        summary
+
+                    alert.alertStyle =
+                        .informational
+
+                    alert.addButton(
+                        withTitle: "OK"
+                    )
+
+                    alert.runModal()
+                }
+
+            } catch {
+                await MainActor.run {
+                    self.showAlert(
+                        "Could not look up dependency acquisition sources:\n\(error.localizedDescription)",
+                        style: .warning
+                    )
+                }
+            }
         }
     }
 
