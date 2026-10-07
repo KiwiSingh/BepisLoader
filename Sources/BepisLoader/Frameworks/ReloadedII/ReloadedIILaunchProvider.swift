@@ -3,16 +3,19 @@ import Foundation
 // ─────────────────────────────────────────────
 //  Reloaded-II Launch Provider
 //
-//  Reloaded-II owns its injection lifecycle.
+//  Reloaded-II owns injection.
 //
 //  BepisLoader launches:
 //
-//      Reloaded-II.exe --launch <game.exe>
+//      Reloaded-II.exe
+//          --launch <AppConfig.AppLocation>
 //
-//  in the same Wine prefix.
+//  The --launch value is taken directly from the
+//  registered AppConfig rather than independently
+//  recomputing a Windows path.
 //
-//  No ASI deployment or custom injection occurs
-//  here.
+//  This guarantees registration and launch agree
+//  on the executable identity Reloaded-II uses.
 // ─────────────────────────────────────────────
 
 final class ReloadedIILaunchProvider:
@@ -24,13 +27,16 @@ final class ReloadedIILaunchProvider:
     let framework:
         ModFramework = .reloadedII
 
+    private let registry =
+        ReloadedIIApplicationRegistry.shared
+
     private init() {}
 
     func configureLaunch(
         for game: GameInstall,
         configuration:
             inout GameLaunchConfiguration
-    ) {
+    ) throws {
         let paths =
             ReloadedIIPaths(
                 game: game
@@ -39,7 +45,46 @@ final class ReloadedIILaunchProvider:
         guard let reloadedExecutable =
                 paths.executable
         else {
-            return
+            throw LaunchConfigurationError
+                .frameworkNotInstalled
+        }
+
+        let application =
+            try registry.register(
+                game
+            )
+
+        let canonicalLocation =
+            try paths.requiredWindowsPath(
+                for: game.executablePath
+            )
+
+        guard normalizeWindowsPath(
+            application.config.appLocation
+        ) == normalizeWindowsPath(
+            canonicalLocation
+        ) else {
+            throw LaunchConfigurationError
+                .registrationMismatch(
+                    expected:
+                        canonicalLocation,
+                    registered:
+                        application.config
+                            .appLocation
+                )
+        }
+
+        let registeredAppLocation =
+            application.config.appLocation
+
+        guard !registeredAppLocation
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty
+        else {
+            throw LaunchConfigurationError
+                .emptyAppLocation
         }
 
         configuration.executable =
@@ -47,60 +92,74 @@ final class ReloadedIILaunchProvider:
 
         configuration.arguments = [
             "--launch",
-            windowsPath(
-                for: game.executablePath,
-                in: game.bottle
-            )
+            registeredAppLocation
         ]
 
-        // Prevent host .NET configuration from
-        // leaking into Reloaded-II under Wine.
+        // Avoid host .NET state leaking into the
+        // Wine-hosted Reloaded-II process.
         configuration.environment[
             "DOTNET_ROOT"
         ] = ""
     }
 
-    private func windowsPath(
-        for url: URL,
-        in bottle: Bottle
+    private func normalizeWindowsPath(
+        _ path: String
     ) -> String {
-        let path =
-            url.standardizedFileURL.path
-
-        let driveC =
-            bottle.path
-                .appendingPathComponent(
-                    "drive_c",
-                    isDirectory: true
-                )
-                .standardizedFileURL.path
-
-        let driveCPrefix =
-            driveC.hasSuffix("/")
-                ? driveC
-                : driveC + "/"
-
-        if path.hasPrefix(
-            driveCPrefix
-        ) {
-            let relative =
-                String(
-                    path.dropFirst(
-                        driveCPrefix.count
-                    )
-                )
-
-            return "C:\\\\" +
-                relative.replacingOccurrences(
-                    of: "/",
-                    with: "\\"
-                )
-        }
-
-        return "Z:" +
-            path.replacingOccurrences(
+        path
+            .replacingOccurrences(
                 of: "/",
                 with: "\\"
             )
+            .trimmingCharacters(
+                in: CharacterSet(
+                    charactersIn: "\\"
+                )
+            )
+            .lowercased()
+    }
+
+    enum LaunchConfigurationError:
+        LocalizedError
+    {
+        case frameworkNotInstalled
+
+        case registrationMismatch(
+            expected: String,
+            registered: String
+        )
+
+        case emptyAppLocation
+
+        var errorDescription: String? {
+            switch self {
+
+            case .frameworkNotInstalled:
+                return """
+                Reloaded-II is not installed \
+                in this game's Wine prefix
+                """
+
+            case .registrationMismatch(
+                let expected,
+                let registered
+            ):
+                return """
+                Reloaded-II registration does \
+                not match this game.
+
+                Expected:
+                \(expected)
+
+                Registered:
+                \(registered)
+                """
+
+            case .emptyAppLocation:
+                return """
+                Reloaded-II's AppConfig has an \
+                empty AppLocation
+                """
+            }
+        }
     }
 }

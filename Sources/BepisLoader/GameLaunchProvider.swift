@@ -29,5 +29,5 @@ protocol GameLaunchProvider {
     func configureLaunch(
         for game: GameInstall,
         configuration: inout GameLaunchConfiguration
-    )
+    ) throws
 }

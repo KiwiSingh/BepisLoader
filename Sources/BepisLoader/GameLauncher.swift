@@ -58,7 +58,7 @@ class GameLauncher {
         )
 
         for provider in providers {
-            provider.configureLaunch(
+            try provider.configureLaunch(
                 for: game,
                 configuration: &configuration
             )

@@ -36,15 +36,38 @@ final class ReloadedIIApplicationRegistry {
     func register(
         _ game: GameInstall
     ) throws -> ReloadedIIApplication {
-        if let existing = registeredApplication(
-            for: game
-        ) {
-            return existing
-        }
-
         let paths = ReloadedIIPaths(
             game: game
         )
+
+        guard fm.fileExists(
+            atPath: game.executablePath.path
+        ) else {
+            throw RegistryError
+                .gameExecutableNotFound
+        }
+
+        let canonicalLocation =
+            try paths.requiredWindowsPath(
+                for: game.executablePath
+            )
+
+        if let existing =
+                registeredApplication(
+                    for: game
+                )
+        {
+            guard normalizeWindowsPath(
+                existing.config.appLocation
+            ) == normalizeWindowsPath(
+                canonicalLocation
+            ) else {
+                throw RegistryError
+                    .registrationMismatch
+            }
+
+            return existing
+        }
 
         guard paths.executable != nil,
               let applications = paths.applications
@@ -52,21 +75,13 @@ final class ReloadedIIApplicationRegistry {
             throw RegistryError.frameworkNotInstalled
         }
 
-        guard let windowsExecutable =
-                paths.windowsPath(
-                    for: game.executablePath
-                )
-        else {
-            throw RegistryError.executableOutsidePrefix
-        }
+        let windowsExecutable =
+            canonicalLocation
 
-        guard let windowsWorkingDirectory =
-                paths.windowsPath(
-                    for: game.gameDirectory
-                )
-        else {
-            throw RegistryError.executableOutsidePrefix
-        }
+        let windowsWorkingDirectory =
+            try paths.requiredWindowsPath(
+                for: game.gameDirectory
+            )
 
         try fm.createDirectory(
             at: applications,
@@ -152,7 +167,7 @@ final class ReloadedIIApplicationRegistry {
         guard let applications =
                 paths.applications,
               let expectedLocation =
-                paths.windowsPath(
+                try? paths.requiredWindowsPath(
                     for: game.executablePath
                 ),
               let directories =
@@ -283,6 +298,8 @@ final class ReloadedIIApplicationRegistry {
     enum RegistryError: LocalizedError {
         case frameworkNotInstalled
         case executableOutsidePrefix
+        case gameExecutableNotFound
+        case registrationMismatch
         case invalidExecutable
 
         var errorDescription: String? {
@@ -298,6 +315,16 @@ final class ReloadedIIApplicationRegistry {
                 return """
                 The game executable could not \
                 be mapped into the Wine C: drive
+                """
+
+            case .gameExecutableNotFound:
+                return """
+                The game's executable could not                 be found on disk
+                """
+
+            case .registrationMismatch:
+                return """
+                Reloaded-II's registered AppLocation                 does not match this game's canonical                 executable path
                 """
 
             case .invalidExecutable:

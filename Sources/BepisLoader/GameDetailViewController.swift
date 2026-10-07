@@ -795,16 +795,6 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
         }
 
         do {
-            if selectedFramework == .reloadedII {
-                // Reloaded-II resolves --launch
-                // against its registered AppConfig.
-                // Surface registration errors here
-                // instead of silently falling back.
-                _ = try ReloadedIIApplicationRegistry
-                    .shared
-                    .register(game)
-            }
-
             let process =
                 try GameLauncher.shared.launch(
                     game: game,

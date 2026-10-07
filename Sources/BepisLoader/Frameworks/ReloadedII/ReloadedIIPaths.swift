@@ -134,6 +134,42 @@ struct ReloadedIIPaths {
             )
     }
 
+    func requiredWindowsPath(
+        for hostURL: URL
+    ) throws -> String {
+        guard let result =
+                windowsPath(
+                    for: hostURL
+                )
+        else {
+            throw PathError.outsideDriveC(
+                hostURL
+            )
+        }
+
+        return result
+    }
+
+    enum PathError:
+        LocalizedError
+    {
+        case outsideDriveC(URL)
+
+        var errorDescription: String? {
+            switch self {
+
+            case .outsideDriveC(
+                let url
+            ):
+                return """
+                \(url.path) is outside this \
+                Wine prefix's C: drive
+                """
+            }
+        }
+    }
+
+
     // ── Installation discovery ────────────────
 
     private func discoverInstallationRoot() -> URL? {
