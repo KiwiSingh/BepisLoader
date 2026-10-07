@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 // ─────────────────────────────────────────────
 //  GameDetailViewController
@@ -649,18 +650,35 @@ let installation = frameworkInstallation(
     @objc private func addModClicked() {
         guard let game = game else { return }
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = []
-        panel.allowsOtherFileTypes = true
-        panel.canChooseFiles =
-            selectedFramework == .bepInEx
-        panel.canChooseDirectories =
-            selectedFramework == .reloadedII
-        panel.message =
-            selectedFramework == .bepInEx
-            ? "Select BepInEx mod .dll file(s)"
-            : "Select Reloaded-II mod folder"
-        panel.allowsMultipleSelection =
-            selectedFramework == .bepInEx
+
+        switch selectedFramework {
+        case .bepInEx:
+            // Preserve the existing BepInEx picker
+            // behaviour: files only, with multiple
+            // selections allowed.
+            panel.allowedContentTypes = []
+            panel.allowsOtherFileTypes = true
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = true
+            panel.message =
+                "Select BepInEx mod .dll file(s)"
+
+        case .reloadedII:
+            // ReloadedIIModManager accepts either
+            // an unpacked package directory or a
+            // ZIP archive. Keep this to one package
+            // per installation transaction.
+            panel.allowedContentTypes = [
+                .zip
+            ]
+            panel.allowsOtherFileTypes = false
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.message =
+                "Select a Reloaded-II mod folder or .zip package"
+        }
         panel.begin { [weak self] response in
             guard response == .OK else { return }
             for url in panel.urls {
