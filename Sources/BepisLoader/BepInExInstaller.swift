@@ -867,117 +867,17 @@ Enabled = true
     }
 
     // ── Wine binary / environment ──────────────────────────────────────────
+    //
+    // Compatibility-layer discovery now lives in WineEnvironment.
+    // These forwarding methods are retained temporarily so existing BepInEx
+    // call sites continue to work during the framework refactor.
 
     func findWineBinary(for bottle: Bottle) -> String? {
-        if let known = findKnownWineBinary(for: bottle) { return known }
-
-        for bundleId in bottle.layer.bundleIdentifiers {
-            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId),
-               let found = searchForWineBinary(in: appURL) {
-                return found
-            }
-        }
-        return nil
-    }
-
-    private func searchForWineBinary(in appURL: URL) -> String? {
-        let result = shell("/usr/bin/find", appURL.path, "-name", "wine64", "-o", "-name", "wine")
-        guard result.exitCode == 0 else { return nil }
-        return result.output
-            .components(separatedBy: .newlines)
-            .filter { !$0.isEmpty }
-            .first {
-                var isDir: ObjCBool = false
-                return FileManager.default.fileExists(atPath: $0, isDirectory: &isDir)
-                    && !isDir.boolValue
-                    && FileManager.default.isExecutableFile(atPath: $0)
-            }
-    }
-
-    private func findKnownWineBinary(for bottle: Bottle) -> String? {
-        let home = NSHomeDirectory()
-        switch bottle.layer {
-        case .crossOver, .crossOverPreview:
-            return [
-                "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine64",
-                "/Applications/CrossOver Preview.app/Contents/SharedSupport/CrossOver/bin/wine64",
-                "\(home)/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine64",
-                "\(home)/Applications/CrossOver Preview.app/Contents/SharedSupport/CrossOver/bin/wine64",
-            ].first { FileManager.default.fileExists(atPath: $0) }
-
-        case .gameMac:
-            let bundleIds = ["com.gamemac.www", "com.www.gamemac"]
-            var gameMacContainers: [String] = []
-            for bid in bundleIds {
-                gameMacContainers.append("\(home)/Library/Containers/\(bid)/Data/Library/Application Support/\(bid)/wine-engine")
-                gameMacContainers.append("\(home)/Library/Application Support/\(bid)/wine-engine")
-            }
-
-            for root in gameMacContainers {
-                let cands = [
-                    "\(root)/bin/wine64",
-                    "\(root)/bin/wine",
-                ]
-                if let found = cands.first(where: { FileManager.default.fileExists(atPath: $0) }) {
-                    return found
-                }
-            }
-            return nil
-
-        case .wine:
-            return [
-                "/opt/homebrew/bin/wine64",
-                "/usr/local/bin/wine64",
-                "/usr/bin/wine64",
-            ].first { FileManager.default.fileExists(atPath: $0) }
-
-        case .wineskin:
-            let shared = bottle.path.deletingLastPathComponent()
-            return [
-                shared.appendingPathComponent("wine/bin/wine64").path,
-                shared.appendingPathComponent("wine/bin/wine").path,
-            ].first { FileManager.default.fileExists(atPath: $0) }
-
-        case .porting:
-            let enginesDir = URL(fileURLWithPath: home)
-                .appendingPathComponent("Library/Application Support/PortingKit/engines")
-            guard let engines = try? FileManager.default.contentsOfDirectory(
-                at: enginesDir, includingPropertiesForKeys: [.isDirectoryKey]) else { return nil }
-            for engine in engines {
-                let cand = engine.appendingPathComponent("bin/wine64").path
-                if FileManager.default.fileExists(atPath: cand) { return cand }
-            }
-            return nil
-
-        case .whisky:
-            return [
-                "\(home)/Library/Containers/com.isaacmarovitz.Whisky/SharedSupport/Wine.bundle/Contents/MacOS/wine64",
-                "/Applications/Whisky.app/Contents/Resources/Wine.bundle/Contents/MacOS/wine64",
-            ].first { FileManager.default.fileExists(atPath: $0) }
-
-        case .other:
-            return nil
-        }
+        WineEnvironment.shared.findWineBinary(for: bottle)
     }
 
     func environmentForBottle(_ bottle: Bottle) -> [String: String] {
-        var env = ProcessInfo.processInfo.environment
-        env["WINEPREFIX"] = bottle.path.path
-        env["WINEDEBUG"]  = "-all"
-
-        let home = NSHomeDirectory()
-        switch bottle.layer {
-        case .crossOver, .crossOverPreview:
-            let cx  = "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/lib"
-            let cxp = "/Applications/CrossOver Preview.app/Contents/SharedSupport/CrossOver/lib"
-            env["DYLD_LIBRARY_PATH"] = "\(cx):\(cxp):\(env["DYLD_LIBRARY_PATH"] ?? "")"
-        case .whisky:
-            let wLib = "\(home)/Library/Containers/com.isaacmarovitz.Whisky/SharedSupport/Wine.bundle/Contents/Resources/lib/wine"
-            env["DYLD_LIBRARY_PATH"] = "\(wLib):\(env["DYLD_LIBRARY_PATH"] ?? "")"
-        default:
-            break
-        }
-        return env
+        WineEnvironment.shared.environment(for: bottle)
     }
 
     // ── Shell helper ───────────────────────────
