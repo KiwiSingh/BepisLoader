@@ -447,11 +447,13 @@ final class ReloadedIIModManager:
                 .frameworkNotInstalled
         }
 
+        let allInstalledMods =
+            ReloadedIIModDiscovery.mods(
+                under: modsRoot
+            )
+
         guard let discovered =
-                ReloadedIIModDiscovery.mods(
-                    under: modsRoot
-                )
-                .first(
+                allInstalledMods.first(
                     where: {
                         $0.config.modId
                             .caseInsensitiveCompare(
@@ -483,70 +485,68 @@ final class ReloadedIIModManager:
                 )
         }
 
-        let allInstalledMods =
-            ReloadedIIModDiscovery.mods(
-                under: modsRoot
-            )
+        let canonicalId =
+            discovered.config.modId
 
         if enabled {
-            try validateRequiredDependencies(
-                for: discovered.config,
-                installedMods:
-                    allInstalledMods,
-                applicationId:
-                    application.config.appId
+            let plan =
+                try dependencyActivationPlan(
+                    for: discovered.config,
+                    installedMods:
+                        allInstalledMods,
+                    applicationId:
+                        application.config.appId
+                )
+
+            applyDependencyActivationPlan(
+                plan,
+                to: &application
             )
         } else {
             try guardAgainstBreakingEnabledDependents(
                 targetModId:
-                    discovered.config.modId,
+                    canonicalId,
                 installedMods:
                     allInstalledMods,
                 application:
                     application
             )
-        }
 
-        let canonicalId =
-            discovered.config.modId
-
-        application.config.enabledMods =
-            application.config.enabledMods
-                .filter {
-                    $0.caseInsensitiveCompare(
-                        canonicalId
-                    ) != .orderedSame
-                }
-
-        if enabled {
-            application.config.enabledMods
-                .append(
-                    canonicalId
-                )
-        }
-
-        // Modern Reloaded-II keeps disabled mods
-        // in SortedMods when disabled-mod ordering
-        // is preserved.
-        if application.config
-            .preserveDisabledModOrder
-        {
-            let alreadySorted =
-                application.config.sortedMods
-                    .contains {
+            application.config.enabledMods =
+                application.config.enabledMods
+                    .filter {
                         $0.caseInsensitiveCompare(
                             canonicalId
-                        ) == .orderedSame
+                        ) != .orderedSame
                     }
 
-            if !alreadySorted {
-                application.config.sortedMods
-                    .append(
-                        canonicalId
-                    )
+            // Modern Reloaded-II keeps disabled
+            // mods in SortedMods when disabled-mod
+            // ordering is preserved.
+            if application.config
+                .preserveDisabledModOrder
+            {
+                let alreadySorted =
+                    application.config.sortedMods
+                        .contains {
+                            $0.caseInsensitiveCompare(
+                                canonicalId
+                            ) == .orderedSame
+                        }
+
+                if !alreadySorted {
+                    application.config.sortedMods
+                        .append(
+                            canonicalId
+                        )
+                }
             }
         }
 
+        // Activation planning mutates only the
+        // in-memory application object. Persist
+        // the complete plan atomically with one
+        // registry update.
         try registry.update(
             application
         )
@@ -631,6 +631,169 @@ final class ReloadedIIModManager:
         }
 
         return result
+    }
+
+    private struct DependencyActivationPlan {
+        // Dependency-first canonical ModIds.
+        // The requested root mod is always last
+        // unless a cycle has already visited it.
+        let orderedModIds: [String]
+    }
+
+    private func dependencyActivationPlan(
+        for rootConfig: ReloadedIIModConfig,
+        installedMods:
+            [ReloadedIIDiscoveredMod],
+        applicationId: String
+    ) throws -> DependencyActivationPlan {
+        // Preserve Patch 18's complete error
+        // reporting for missing/incompatible
+        // dependencies before building a plan.
+        try validateRequiredDependencies(
+            for: rootConfig,
+            installedMods:
+                installedMods,
+            applicationId:
+                applicationId
+        )
+
+        let index =
+            modIndex(
+                installedMods
+            )
+
+        var visited =
+            Set<String>()
+
+        var ordered:
+            [String] = []
+
+        appendDependencyActivation(
+            config: rootConfig,
+            index: index,
+            visited: &visited,
+            ordered: &ordered
+        )
+
+        return DependencyActivationPlan(
+            orderedModIds:
+                ordered
+        )
+    }
+
+    private func appendDependencyActivation(
+        config: ReloadedIIModConfig,
+        index:
+            [String: ReloadedIIDiscoveredMod],
+        visited: inout Set<String>,
+        ordered: inout [String]
+    ) {
+        let current =
+            normalizedModId(
+                config.modId
+            )
+
+        guard visited.insert(
+            current
+        ).inserted else {
+            return
+        }
+
+        // DFS post-order gives us dependencies
+        // before the mod that requires them.
+        //
+        // OptionalDependencies intentionally do
+        // not participate in automatic activation.
+        for dependencyId
+            in config.modDependencies
+        {
+            let dependencyKey =
+                normalizedModId(
+                    dependencyId
+                )
+
+            guard !dependencyKey.isEmpty,
+                  let dependency =
+                    index[dependencyKey]
+            else {
+                // Missing dependencies have
+                // already been rejected by the
+                // validation pass above.
+                continue
+            }
+
+            appendDependencyActivation(
+                config:
+                    dependency.config,
+                index: index,
+                visited: &visited,
+                ordered: &ordered
+            )
+        }
+
+        ordered.append(
+            config.modId
+        )
+    }
+
+    private func applyDependencyActivationPlan(
+        _ plan: DependencyActivationPlan,
+        to application:
+            inout ReloadedIIApplication
+    ) {
+        // Preserve unrelated EnabledMods and
+        // SortedMods. For every planned ModId,
+        // remove case-insensitive duplicates,
+        // then append it in dependency-first
+        // order.
+        //
+        // This also canonicalizes casing using
+        // the installed ModConfig.json value.
+        for modId
+            in plan.orderedModIds
+        {
+            application.config.enabledMods =
+                application.config.enabledMods
+                    .filter {
+                        $0.caseInsensitiveCompare(
+                            modId
+                        ) != .orderedSame
+                    }
+
+            application.config.enabledMods
+                .append(
+                    modId
+                )
+        }
+
+        // SortedMods is the explicit load-order
+        // list. Planned mods are rewritten there
+        // dependency-first as one contiguous
+        // ordered sequence.
+        let plannedKeys =
+            Set(
+                plan.orderedModIds.map {
+                    normalizedModId(
+                        $0
+                    )
+                }
+            )
+
+        application.config.sortedMods =
+            application.config.sortedMods
+                .filter {
+                    !plannedKeys.contains(
+                        normalizedModId(
+                            $0
+                        )
+                    )
+                }
+
+        application.config.sortedMods
+            .append(
+                contentsOf:
+                    plan.orderedModIds
+            )
     }
 
     private func validateRequiredDependencies(
