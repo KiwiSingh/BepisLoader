@@ -6,10 +6,12 @@ import Foundation
 //  BepInEx/plugins directory.
 // ─────────────────────────────────────────────
 
-final class BepInExModManager {
+final class BepInExModManager: ModManaging {
 
     static let shared = BepInExModManager()
     private init() {}
+
+    let framework: ModFramework = .bepInEx
 
     private let fm = FileManager.default
 
@@ -127,6 +129,59 @@ final class BepInExModManager {
             }
         }
         return nil
+    }
+
+    // ── Generic mod-management API ──────────────
+    //
+    // These adapters expose BepInEx plugins through the
+    // framework-neutral ModManaging interface while the
+    // existing Mod-based API remains available to the UI
+    // during migration.
+
+    func installedMods(for game: GameInstall) -> [InstalledMod] {
+        listMods(for: game).map { mod in
+            InstalledMod(
+                id: mod.id.uuidString,
+                name: mod.name,
+                version: mod.version == "?" ? nil : mod.version,
+                author: mod.author == "Unknown" ? nil : mod.author,
+                description: mod.description,
+                framework: framework,
+                path: mod.dllPath,
+                isEnabled: mod.isEnabled
+            )
+        }
+    }
+
+    func installMod(from source: URL, into game: GameInstall) throws {
+        try install(mod: source, into: game)
+    }
+
+    func removeMod(_ mod: InstalledMod, from game: GameInstall) throws {
+        let legacyMod = legacyMod(from: mod)
+        try remove(mod: legacyMod, from: game)
+    }
+
+    func setModEnabled(
+        _ enabled: Bool,
+        mod: InstalledMod,
+        in game: GameInstall
+    ) throws {
+        let legacyMod = legacyMod(from: mod)
+        try setEnabled(enabled, mod: legacyMod, in: game)
+    }
+
+    private func legacyMod(from mod: InstalledMod) -> Mod {
+        var legacyMod = Mod(
+            name: mod.name,
+            version: mod.version ?? "?",
+            author: mod.author ?? "Unknown",
+            description: mod.description,
+            dllPath: mod.path
+        )
+
+        legacyMod.isEnabled = mod.isEnabled
+        return legacyMod
     }
 
     // ── Helpers ────────────────────────────────
