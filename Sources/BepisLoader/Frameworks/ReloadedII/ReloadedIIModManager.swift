@@ -137,19 +137,19 @@ final class ReloadedIIModManager:
                 game
             )
 
-        let initialMods =
+        let installedMods =
             ReloadedIIModDiscovery
                 .mods(
                     under: modsRoot
                 )
 
-        let initialIndex =
+        let installedIndex =
             modIndex(
-                initialMods
+                installedMods
             )
 
         guard let target =
-                initialIndex[
+                installedIndex[
                     normalizedModId(
                         mod.id
                     )
@@ -161,14 +161,14 @@ final class ReloadedIIModManager:
                 )
         }
 
-        let dependencyPlan =
+        let rootPlan =
             ReloadedIIDependencyResolver
                 .shared
                 .plan(
                     for:
                         target.config.modId,
                     installedMods:
-                        initialMods,
+                        installedMods,
                     enabledModIds:
                         application.config
                             .enabledMods,
@@ -177,20 +177,13 @@ final class ReloadedIIModManager:
                             .appId
                 )
 
-        guard !dependencyPlan
-                .missingRequired
-                .isEmpty
-        else {
-            return []
-        }
-
-        guard dependencyPlan
+        guard rootPlan
                 .incompatibleRequired
                 .isEmpty
         else {
             throw ReloadedIIDependencyInstallError
                 .incompatibleDependencies(
-                    dependencyPlan
+                    rootPlan
                         .incompatibleRequired
                         .map {
                             $0.modId
@@ -198,65 +191,190 @@ final class ReloadedIIModManager:
                 )
         }
 
-        let acquisitionPlan =
-            await ReloadedIIDependencyAcquisitionService
-                .shared
-                .plan(
-                    for:
-                        dependencyPlan
-                )
-
-        let unresolved =
-            acquisitionPlan
-                .unresolved
-                .map {
-                    $0.dependency.modId
-                }
-
-        guard unresolved.isEmpty
+        guard !rootPlan
+                .missingRequired
+                .isEmpty
         else {
-            throw ReloadedIIDependencyInstallError
-                .unresolvedDependencies(
-                    unresolved
-                )
+            return []
         }
 
-        // Deeper nodes are dependencies of shallower
-        // nodes, so install deepest first. Stable ModId
-        // ordering keeps equivalent plans deterministic.
-        let ordered =
-            acquisitionPlan
-                .resolved
-                .sorted {
-                    if $0.dependency.depth
-                        != $1.dependency.depth
-                    {
-                        return $0.dependency.depth
-                            > $1.dependency.depth
-                    }
+        // Resolve and verify the complete recursively
+        // discovered graph before installing anything.
+        var staged:
+            [String: RecursiveDependencyPackage]
+                = [:]
 
-                    return $0.dependency.modId
-                        .localizedCaseInsensitiveCompare(
-                            $1.dependency.modId
-                        )
-                        == .orderedAscending
-                }
-
-        var installed:
+        var visiting:
             [String] = []
 
-        for resolution
-            in ordered
-        {
-            let expectedModId =
-                resolution
-                    .dependency
-                    .modId
+        var visitSet =
+            Set<String>()
 
-            // Patch 29 already sorts candidates
-            // deterministically by provider/source
-            // priority. Use the first candidate which
-            // actually exposes a package URL.
+        var orderedIds:
+            [String] = []
+
+        var orderedSet =
+            Set<String>()
+
+        defer {
+            for package
+                in staged.values
+            {
+                try? fm.removeItem(
+                    at:
+                        package.localURL
+                )
+            }
+        }
+
+        func acquire(
+            _ requestedModId: String
+        ) async throws {
+            let normalized =
+                normalizedModId(
+                    requestedModId
+                )
+
+            // Existing compatible installs satisfy
+            // this node without downloading anything.
+            if let installed =
+                    installedIndex[
+                        normalized
+                    ]
+            {
+                guard supports(
+                    installed.config,
+                    applicationId:
+                        application.config
+                            .appId
+                )
+                else {
+                    throw ReloadedIIDependencyInstallError
+                        .incompatibleDependencies(
+                            [
+                                requestedModId
+                            ]
+                        )
+                }
+
+                return
+            }
+
+            if staged[
+                normalized
+            ] != nil {
+                return
+            }
+
+            // DFS recursion-stack cycle detection.
+            if visitSet.contains(
+                normalized
+            ) {
+                let cycleStart =
+                    visiting.firstIndex(
+                        of:
+                            normalized
+                    )
+                    ?? 0
+
+                let cycle =
+                    Array(
+                        visiting[
+                            cycleStart...
+                        ]
+                    )
+                    + [
+                        normalized
+                    ]
+
+                throw ReloadedIIDependencyInstallError
+                    .recursiveDependencyCycle(
+                        cycle
+                    )
+            }
+
+            visitSet.insert(
+                normalized
+            )
+
+            visiting.append(
+                normalized
+            )
+
+            defer {
+                _ = visitSet.remove(
+                    normalized
+                )
+
+                if visiting.last
+                    == normalized
+                {
+                    visiting.removeLast()
+                } else if let index =
+                            visiting.firstIndex(
+                                of:
+                                    normalized
+                            )
+                {
+                    visiting.remove(
+                        at:
+                            index
+                    )
+                }
+            }
+
+            // Represent this recursively discovered
+            // missing ModId as a one-node acquisition
+            // plan so Patch 29's existing provider
+            // ordering/filtering remains authoritative.
+            let dependency =
+                ReloadedIIDependencyResolution(
+                    modId:
+                        requestedModId,
+                    requestedBy:
+                        visiting.dropLast()
+                            .last
+                        ?? target.config
+                            .modId,
+                    kind:
+                        .required,
+                    state:
+                        .missing,
+                    depth:
+                        visiting.count
+                )
+
+            let syntheticPlan =
+                ReloadedIIDependencyPlan(
+                    rootModId:
+                        target.config.modId,
+                    resolutions: [
+                        dependency
+                    ],
+                    cycles: []
+                )
+
+            let acquisitionPlan =
+                await ReloadedIIDependencyAcquisitionService
+                    .shared
+                    .plan(
+                        for:
+                            syntheticPlan
+                    )
+
+            guard let resolution =
+                    acquisitionPlan
+                        .dependencies
+                        .first
+            else {
+                throw ReloadedIIDependencyInstallError
+                    .unresolvedDependencies(
+                        [
+                            requestedModId
+                        ]
+                    )
+            }
+
             guard let candidate =
                     resolution
                         .candidates
@@ -269,7 +387,7 @@ final class ReloadedIIModManager:
             else {
                 throw ReloadedIIDependencyInstallError
                     .noDownloadableCandidate(
-                        expectedModId
+                        requestedModId
                     )
             }
 
@@ -281,23 +399,22 @@ final class ReloadedIIModManager:
                             candidate
                     )
 
+            var retainedDownload =
+                false
+
             defer {
-                try? fm.removeItem(
-                    at:
-                        downloaded.localURL
-                )
+                if !retainedDownload {
+                    try? fm.removeItem(
+                        at:
+                            downloaded.localURL
+                    )
+                }
             }
 
-            // SECURITY BOUNDARY:
-            //
-            // Inspect using the SAME PackageWorkspace,
-            // preparePackage(), validatePackageTree()
-            // and package discovery machinery used by
-            // installMod(). Do not trust the Index's
-            // ModId claim by itself.
             let verificationWorkspace =
                 try PackageWorkspace(
-                    fileManager: fm
+                    fileManager:
+                        fm
                 )
 
             defer {
@@ -332,32 +449,35 @@ final class ReloadedIIModManager:
                 throw ReloadedIIDependencyInstallError
                     .invalidDownloadedPackage(
                         modId:
-                            expectedModId,
+                            requestedModId,
                         reason:
                             error.localizedDescription
                     )
             }
 
-            guard packageMods.count == 1,
+            guard packageMods.count
+                    == 1,
                   let downloadedMod =
                     packageMods.first
             else {
                 throw ReloadedIIDependencyInstallError
                     .ambiguousDownloadedPackage(
-                        expectedModId
+                        requestedModId
                     )
             }
 
-            guard downloadedMod.config.modId
+            guard downloadedMod
+                    .config
+                    .modId
                     .caseInsensitiveCompare(
-                        expectedModId
+                        requestedModId
                     )
                     == .orderedSame
             else {
                 throw ReloadedIIDependencyInstallError
                     .modIdMismatch(
                         expected:
-                            expectedModId,
+                            requestedModId,
                         actual:
                             downloadedMod
                                 .config
@@ -365,23 +485,151 @@ final class ReloadedIIModManager:
                     )
             }
 
-            // installMod() performs its own independent
-            // extraction + validation + compatibility
-            // and dependency checks, then uses the
-            // existing transactional installer.
+            guard supports(
+                downloadedMod.config,
+                applicationId:
+                    application.config
+                        .appId
+            )
+            else {
+                throw ReloadedIIDependencyInstallError
+                    .incompatibleDependencies(
+                        [
+                            downloadedMod
+                                .config
+                                .modId
+                        ]
+                    )
+            }
+
+            var dependencyIds:
+                [String] = []
+
+            var dependencyKeys =
+                Set<String>()
+
+            for dependencyId
+                in downloadedMod
+                    .config
+                    .modDependencies
+            {
+                let trimmed =
+                    dependencyId
+                        .trimmingCharacters(
+                            in:
+                                .whitespacesAndNewlines
+                        )
+
+                guard !trimmed.isEmpty
+                else {
+                    continue
+                }
+
+                let key =
+                    normalizedModId(
+                        trimmed
+                    )
+
+                guard dependencyKeys
+                        .insert(
+                            key
+                        )
+                        .inserted
+                else {
+                    continue
+                }
+
+                dependencyIds.append(
+                    trimmed
+                )
+            }
+
+            staged[
+                normalized
+            ] =
+                RecursiveDependencyPackage(
+                    modId:
+                        downloadedMod
+                            .config
+                            .modId,
+                    localURL:
+                        downloaded
+                            .localURL,
+                    requiredDependencies:
+                        dependencyIds
+                )
+
+            retainedDownload =
+                true
+
+            // Discover dependencies from the verified
+            // downloaded ModConfig.json and recurse.
+            for dependencyId
+                in dependencyIds
+            {
+                try await acquire(
+                    dependencyId
+                )
+            }
+
+            // DFS post-order naturally places every
+            // acquired dependency before its parent.
+            if orderedSet.insert(
+                    normalized
+                  ).inserted
+            {
+                orderedIds.append(
+                    normalized
+                )
+            }
+        }
+
+        for resolution
+            in rootPlan
+                .missingRequired
+        {
+            try await acquire(
+                resolution.modId
+            )
+        }
+
+        // ─────────────────────────────────────
+        // COMMIT PHASE
+        //
+        // The complete recursive graph has resolved
+        // and every downloaded package has already
+        // passed identity/tree/compatibility checks.
+        // ─────────────────────────────────────
+
+        var installed:
+            [String] = []
+
+        for normalized
+            in orderedIds
+        {
+            guard let package =
+                    staged[
+                        normalized
+                    ]
+            else {
+                throw ReloadedIIDependencyInstallError
+                    .preflightStateLost(
+                        normalized
+                    )
+            }
+
             try installMod(
                 from:
-                    downloaded.localURL,
+                    package.localURL,
                 into:
                     game
             )
 
-            // Verify that the expected identity really
-            // exists after the transaction.
             let installedNow =
                 ReloadedIIModDiscovery
                     .mods(
-                        under: modsRoot
+                        under:
+                            modsRoot
                     )
 
             guard installedNow
@@ -389,7 +637,7 @@ final class ReloadedIIModManager:
                         where: {
                             $0.config.modId
                                 .caseInsensitiveCompare(
-                                    expectedModId
+                                    package.modId
                                 )
                                 == .orderedSame
                         }
@@ -397,16 +645,22 @@ final class ReloadedIIModManager:
             else {
                 throw ReloadedIIDependencyInstallError
                     .postInstallVerificationFailed(
-                        expectedModId
+                        package.modId
                     )
             }
 
             installed.append(
-                expectedModId
+                package.modId
             )
         }
 
         return installed
+    }
+
+    private struct RecursiveDependencyPackage {
+        let modId: String
+        let localURL: URL
+        let requiredDependencies: [String]
     }
 
     func dependencyAcquisitionSummary(
@@ -2738,6 +2992,8 @@ final class ReloadedIIModManager:
             actual: String
         )
         case postInstallVerificationFailed(String)
+        case recursiveDependencyCycle([String])
+        case preflightStateLost(String)
 
         var errorDescription: String? {
             switch self {
@@ -2816,6 +3072,29 @@ final class ReloadedIIModManager:
                 Reloaded-II reported a successful \
                 dependency installation, but \(modId) \
                 could not be verified afterward.
+                """
+
+            case .recursiveDependencyCycle(
+                let modIds
+            ):
+                return """
+                A required Reloaded-II dependency \
+                cycle was discovered while inspecting \
+                acquired packages:
+
+                \(modIds.joined(separator: " → "))
+
+                Nothing from this recursive acquisition \
+                plan was installed.
+                """
+
+            case .preflightStateLost(
+                let modId
+            ):
+                return """
+                The verified dependency package for \
+                \(modId) disappeared from the recursive \
+                acquisition plan before installation.
                 """
             }
         }
