@@ -342,7 +342,7 @@ class GameDetailViewController: NSViewController {
                 statusLabel.textColor   = .systemGreen
                 installButton.title = "Install BepisLoader"
             }
-            mods = ModManager.shared.listMods(for: game)
+            mods = BepInExModManager.shared.listMods(for: game)
             modTableView.reloadData()
         case .incompatible(let r):
             statusLabel.stringValue = "🔴 Incompatible: \(r)"
@@ -432,7 +432,7 @@ class GameDetailViewController: NSViewController {
             guard response == .OK else { return }
             for url in panel.urls {
                 do {
-                    try ModManager.shared.install(mod: url, into: game)
+                    try BepInExModManager.shared.install(mod: url, into: game)
                 } catch {
                     self?.showAlert("Failed to install \(url.lastPathComponent):\n\(error.localizedDescription)", style: .warning)
                 }
@@ -537,7 +537,7 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
         mod.isEnabled = sender.state == .on
         mods[sender.tag] = mod
         do {
-            try ModManager.shared.setEnabled(mod.isEnabled, mod: mod, in: game)
+            try BepInExModManager.shared.setEnabled(mod.isEnabled, mod: mod, in: game)
         } catch {
             showAlert("Could not toggle mod:\n\(error.localizedDescription)", style: .warning)
         }
