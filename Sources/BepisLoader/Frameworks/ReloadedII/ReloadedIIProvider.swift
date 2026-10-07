@@ -28,17 +28,25 @@ final class ReloadedIIProvider: ModFrameworkProvider {
             game: game
         )
 
-        guard paths.executable != nil else {
+        guard let executable =
+                paths.executable
+        else {
             return FrameworkInstallation(
                 framework: framework,
                 status: .notInstalled
             )
         }
 
+        let version =
+            WindowsExecutableMetadata
+                .fileVersion(
+                    at: executable
+                )
+
         return FrameworkInstallation(
             framework: framework,
             status: .installed(
-                version: nil
+                version: version
             )
         )
     }
