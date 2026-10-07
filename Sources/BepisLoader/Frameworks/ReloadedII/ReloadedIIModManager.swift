@@ -242,6 +242,16 @@ final class ReloadedIIModManager:
                     ) == .orderedSame
                 }
 
+        try validateRequiredDependencies(
+            for: modConfig,
+            installedMods:
+                ReloadedIIModDiscovery.mods(
+                    under: modsRoot
+                ),
+            applicationId:
+                application.config.appId
+        )
+
         let transaction =
             try transactionalInstall(
                 payload:
@@ -380,6 +390,15 @@ final class ReloadedIIModManager:
                 )
         }
 
+        try guardAgainstBreakingEnabledDependents(
+            targetModId:
+                target.config.modId,
+            installedMods:
+                discovered,
+            game:
+                game
+        )
+
         // Remove references from this game's
         // application config before deleting
         // the globally installed mod.
@@ -464,6 +483,30 @@ final class ReloadedIIModManager:
                 )
         }
 
+        let allInstalledMods =
+            ReloadedIIModDiscovery.mods(
+                under: modsRoot
+            )
+
+        if enabled {
+            try validateRequiredDependencies(
+                for: discovered.config,
+                installedMods:
+                    allInstalledMods,
+                applicationId:
+                    application.config.appId
+            )
+        } else {
+            try guardAgainstBreakingEnabledDependents(
+                targetModId:
+                    discovered.config.modId,
+                installedMods:
+                    allInstalledMods,
+                application:
+                    application
+            )
+        }
+
         let canonicalId =
             discovered.config.modId
 
@@ -542,6 +585,371 @@ final class ReloadedIIModManager:
         try registry.update(
             application
         )
+    }
+
+    // ── Dependency graph ──────────────────────
+
+    private struct DependencyValidationResult {
+        var missing:
+            Set<String> = []
+
+        var incompatible:
+            Set<String> = []
+
+        var isValid: Bool {
+            missing.isEmpty
+            && incompatible.isEmpty
+        }
+    }
+
+    private func normalizedModId(
+        _ modId: String
+    ) -> String {
+        modId
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .lowercased()
+    }
+
+    private func modIndex(
+        _ mods: [ReloadedIIDiscoveredMod]
+    ) -> [String: ReloadedIIDiscoveredMod] {
+        var result:
+            [String: ReloadedIIDiscoveredMod] = [:]
+
+        for mod in mods {
+            let key =
+                normalizedModId(
+                    mod.config.modId
+                )
+
+            if result[key] == nil {
+                result[key] =
+                    mod
+            }
+        }
+
+        return result
+    }
+
+    private func validateRequiredDependencies(
+        for rootConfig: ReloadedIIModConfig,
+        installedMods:
+            [ReloadedIIDiscoveredMod],
+        applicationId: String
+    ) throws {
+        let index =
+            modIndex(
+                installedMods
+            )
+
+        var result =
+            DependencyValidationResult()
+
+        var visited =
+            Set<String>()
+
+        // The root may be an update of an
+        // already-installed mod. Mark it visited
+        // so a circular graph cannot recurse back
+        // through the old copy.
+        visited.insert(
+            normalizedModId(
+                rootConfig.modId
+            )
+        )
+
+        inspectRequiredDependencies(
+            of: rootConfig,
+            index: index,
+            applicationId:
+                applicationId,
+            visited:
+                &visited,
+            result:
+                &result
+        )
+
+        guard !result.isValid else {
+            return
+        }
+
+        throw ReloadedIIModError
+            .dependencyValidationFailed(
+                modId:
+                    rootConfig.modId,
+                missing:
+                    sortedModIds(
+                        result.missing
+                    ),
+                incompatible:
+                    sortedModIds(
+                        result.incompatible
+                    )
+            )
+    }
+
+    private func inspectRequiredDependencies(
+        of config: ReloadedIIModConfig,
+        index:
+            [String: ReloadedIIDiscoveredMod],
+        applicationId: String,
+        visited: inout Set<String>,
+        result:
+            inout DependencyValidationResult
+    ) {
+        // OptionalDependencies intentionally do
+        // not participate in validation.
+        for dependencyId
+            in config.modDependencies
+        {
+            let trimmed =
+                dependencyId
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+            guard !trimmed.isEmpty else {
+                continue
+            }
+
+            let key =
+                normalizedModId(
+                    trimmed
+                )
+
+            // Cycles are legal for traversal
+            // purposes: once a node has already
+            // been inspected, stop descending.
+            if visited.contains(key) {
+                continue
+            }
+
+            visited.insert(key)
+
+            guard let dependency =
+                    index[key]
+            else {
+                result.missing.insert(
+                    trimmed
+                )
+                continue
+            }
+
+            if !supports(
+                dependency.config,
+                applicationId:
+                    applicationId
+            ) {
+                result.incompatible.insert(
+                    dependency.config.modId
+                )
+
+                // Still inspect its children so
+                // the user receives the complete
+                // dependency failure set.
+            }
+
+            inspectRequiredDependencies(
+                of: dependency.config,
+                index: index,
+                applicationId:
+                    applicationId,
+                visited:
+                    &visited,
+                result:
+                    &result
+            )
+        }
+    }
+
+    private func sortedModIds(
+        _ ids: Set<String>
+    ) -> [String] {
+        ids.sorted {
+            $0.localizedCaseInsensitiveCompare(
+                $1
+            ) == .orderedAscending
+        }
+    }
+
+    private func guardAgainstBreakingEnabledDependents(
+        targetModId: String,
+        installedMods:
+            [ReloadedIIDiscoveredMod],
+        game: GameInstall
+    ) throws {
+        guard let application =
+                registry.registeredApplication(
+                    for: game
+                )
+        else {
+            return
+        }
+
+        try guardAgainstBreakingEnabledDependents(
+            targetModId:
+                targetModId,
+            installedMods:
+                installedMods,
+            application:
+                application
+        )
+    }
+
+    private func guardAgainstBreakingEnabledDependents(
+        targetModId: String,
+        installedMods:
+            [ReloadedIIDiscoveredMod],
+        application:
+            ReloadedIIApplication
+    ) throws {
+        let dependents =
+            enabledDependents(
+                of: targetModId,
+                installedMods:
+                    installedMods,
+                enabledModIds:
+                    application.config
+                        .enabledMods
+            )
+
+        guard dependents.isEmpty else {
+            throw ReloadedIIModError
+                .requiredByEnabledMods(
+                    modId:
+                        targetModId,
+                    dependents:
+                        dependents
+                )
+        }
+    }
+
+    private func enabledDependents(
+        of targetModId: String,
+        installedMods:
+            [ReloadedIIDiscoveredMod],
+        enabledModIds: [String]
+    ) -> [String] {
+        let index =
+            modIndex(
+                installedMods
+            )
+
+        let target =
+            normalizedModId(
+                targetModId
+            )
+
+        let enabled =
+            Set(
+                enabledModIds.map {
+                    normalizedModId(
+                        $0
+                    )
+                }
+            )
+
+        var result:
+            [String] = []
+
+        for mod in installedMods {
+            let modKey =
+                normalizedModId(
+                    mod.config.modId
+                )
+
+            guard enabled.contains(
+                modKey
+            ) else {
+                continue
+            }
+
+            // A mod never blocks disabling or
+            // removing itself.
+            guard modKey != target else {
+                continue
+            }
+
+            var visited =
+                Set<String>()
+
+            if transitivelyDepends(
+                config:
+                    mod.config,
+                on: target,
+                index: index,
+                visited:
+                    &visited
+            ) {
+                result.append(
+                    mod.config.modId
+                )
+            }
+        }
+
+        return result.sorted {
+            $0.localizedCaseInsensitiveCompare(
+                $1
+            ) == .orderedAscending
+        }
+    }
+
+    private func transitivelyDepends(
+        config: ReloadedIIModConfig,
+        on target:
+            String,
+        index:
+            [String: ReloadedIIDiscoveredMod],
+        visited: inout Set<String>
+    ) -> Bool {
+        let current =
+            normalizedModId(
+                config.modId
+            )
+
+        guard visited.insert(
+            current
+        ).inserted else {
+            return false
+        }
+
+        for dependencyId
+            in config.modDependencies
+        {
+            let dependency =
+                normalizedModId(
+                    dependencyId
+                )
+
+            guard !dependency.isEmpty else {
+                continue
+            }
+
+            if dependency == target {
+                return true
+            }
+
+            guard let discovered =
+                    index[dependency]
+            else {
+                continue
+            }
+
+            if transitivelyDepends(
+                config:
+                    discovered.config,
+                on: target,
+                index: index,
+                visited:
+                    &visited
+            ) {
+                return true
+            }
+        }
+
+        return false
     }
 
     // ── Package installation ───────────────────
@@ -997,6 +1405,17 @@ final class ReloadedIIModManager:
     {
         case expectedDirectory
         case frameworkNotInstalled
+
+        case dependencyValidationFailed(
+            modId: String,
+            missing: [String],
+            incompatible: [String]
+        )
+
+        case requiredByEnabledMods(
+            modId: String,
+            dependents: [String]
+        )
         case sourceNotFound
         case unsupportedPackageType
         case invalidPackage(String)
@@ -1084,6 +1503,49 @@ final class ReloadedIIModManager:
                 be restored automatically:
 
                 \(reason)
+                """
+
+            case .dependencyValidationFailed(
+                let modId,
+                let missing,
+                let incompatible
+            ):
+                var sections:
+                    [String] = []
+
+                if !missing.isEmpty {
+                    sections.append(
+                        """
+                        Missing required dependencies:
+                        \(missing.map { "• \($0)" }.joined(separator: "\n"))
+                        """
+                    )
+                }
+
+                if !incompatible.isEmpty {
+                    sections.append(
+                        """
+                        Dependencies incompatible with this game:
+                        \(incompatible.map { "• \($0)" }.joined(separator: "\n"))
+                        """
+                    )
+                }
+
+                return """
+                Cannot use \(modId).
+
+                \(sections.joined(separator: "\n\n"))
+                """
+
+            case .requiredByEnabledMods(
+                let modId,
+                let dependents
+            ):
+                return """
+                Cannot disable or remove \(modId).
+
+                Required by enabled mods:
+                \(dependents.map { "• \($0)" }.joined(separator: "\n"))
                 """
 
             case .frameworkNotInstalled:
