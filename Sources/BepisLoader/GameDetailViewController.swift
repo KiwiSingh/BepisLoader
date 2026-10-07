@@ -18,6 +18,8 @@ class GameDetailViewController: NSViewController {
     private let pathLabel        = NSTextField(labelWithString: "")
     private let archLabel        = NSTextField(labelWithString: "")
     private let statusLabel      = NSTextField(labelWithString: "")
+    private let frameworkLabel   = NSTextField(labelWithString: "Framework:")
+    private let frameworkPopUp   = NSPopUpButton()
     private let layerLabel       = NSTextField(labelWithString: "Launch Layer:")
     private let layerPopUp       = NSPopUpButton()
     private let installButton    = NSButton()
@@ -36,6 +38,7 @@ class GameDetailViewController: NSViewController {
     private let logScrollView    = NSScrollView()
 
     private var mods: [InstalledMod] = []
+    private var selectedFramework: ModFramework = .bepInEx
     private var runningProcess: Process?
     private var logObserver: NSObjectProtocol?
 
@@ -98,6 +101,35 @@ class GameDetailViewController: NSViewController {
         statusLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(statusLabel)
+
+        // Framework dropdown
+        frameworkLabel.font = NSFont.systemFont(ofSize: 11)
+        frameworkLabel.textColor = .secondaryLabelColor
+        frameworkLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        frameworkPopUp.translatesAutoresizingMaskIntoConstraints = false
+        frameworkPopUp.target = self
+        frameworkPopUp.action = #selector(frameworkChanged)
+
+        for framework in ModFramework.allCases {
+            frameworkPopUp.addItem(
+                withTitle: framework.rawValue
+            )
+        }
+
+        let frameworkStack = NSStackView(
+            views: [
+                frameworkLabel,
+                frameworkPopUp
+            ]
+        )
+
+        frameworkStack.spacing = 8
+        frameworkStack.orientation = .horizontal
+        frameworkStack.alignment = .centerY
+        frameworkStack.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(frameworkStack)
 
         // Layer dropdown
         layerLabel.font = NSFont.systemFont(ofSize: 11)
@@ -236,7 +268,10 @@ class GameDetailViewController: NSViewController {
             viewLogButton.centerYAnchor.constraint(equalTo: statusLabel.centerYAnchor),
             viewLogButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
 
-            layerStack.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 16),
+            frameworkStack.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 12),
+            frameworkStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+
+            layerStack.topAnchor.constraint(equalTo: frameworkStack.bottomAnchor, constant: 12),
             layerStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
 
             buttonStack.topAnchor.constraint(equalTo: layerStack.bottomAnchor, constant: 12),
@@ -287,9 +322,43 @@ class GameDetailViewController: NSViewController {
 
     // ── Data refresh ───────────────────────────
 
+    // ── Framework routing ─────────────────────
+
+    private var selectedProvider: any ModFrameworkProvider {
+        switch selectedFramework {
+
+        case .bepInEx:
+            return BepInExProvider.shared
+
+        case .reloadedII:
+            return ReloadedIIProvider.shared
+        }
+    }
+
+    private var selectedModManager: any ModManaging {
+        switch selectedFramework {
+
+        case .bepInEx:
+            return BepInExModManager.shared
+
+        case .reloadedII:
+            return ReloadedIIModManager.shared
+        }
+    }
+
+    private func frameworkInstallation(
+        for game: GameInstall
+    ) -> FrameworkInstallation {
+        selectedProvider.detect(in: game)
+    }
+
     private func refresh() {
         guard let game = game else {
-            titleLabel.stringValue   = "Select a game"
+            frameworkPopUp.selectItem(
+            withTitle: selectedFramework.rawValue
+        )
+
+        titleLabel.stringValue   = "Select a game"
             pathLabel.stringValue    = ""
             archLabel.stringValue    = ""
             statusLabel.stringValue  = ""
@@ -326,29 +395,96 @@ class GameDetailViewController: NSViewController {
         uninstallButton.isHidden  = !BepInExProvider.shared.detect(in: game).isInstalled
         launchInfoLabel.isHidden  = !BepInExProvider.shared.detect(in: game).isInstalled
 
-        switch BepInExProvider.shared.detect(in: game).status {
+        let installation = frameworkInstallation(
+            for: game
+        )
+
+        switch installation.status {
+
         case .notInstalled:
-            statusLabel.stringValue = "⚪ BepisLoader not installed"
-            statusLabel.textColor   = .secondaryLabelColor
-            installButton.title = "Install BepisLoader"
-        case .installed(let v):
-            if v == "unknown" {
-                statusLabel.stringValue = "🟠 BepisLoader installed (version unknown)"
-                statusLabel.textColor   = .systemOrange
-                installButton.isHidden  = false
-                installButton.title = "Redownload BepisLoader"
+            statusLabel.stringValue =
+                "⚪ \(selectedFramework.rawValue) not installed"
+
+            statusLabel.textColor =
+                .secondaryLabelColor
+
+            installButton.title =
+                "Install \(selectedFramework.rawValue)"
+
+        case .installed(let version):
+            if let version,
+               !version.isEmpty,
+               version != "unknown" {
+
+                statusLabel.stringValue =
+                    "🟢 \(selectedFramework.rawValue) \(version) installed"
+
             } else {
-                statusLabel.stringValue = "🟢 BepInEx \(v) installed"
-                statusLabel.textColor   = .systemGreen
-                installButton.title = "Install BepisLoader"
+                statusLabel.stringValue =
+                    "🟢 \(selectedFramework.rawValue) installed"
             }
-            mods = BepInExModManager.shared.installedMods(for: game)
+
+            statusLabel.textColor =
+                .systemGreen
+
+            mods = selectedModManager.installedMods(
+                for: game
+            )
+
             modTableView.reloadData()
-        case .incompatible(let r):
-            statusLabel.stringValue = "🔴 Incompatible: \(r)"
-            statusLabel.textColor   = .systemRed
-            installButton.title = "Install BepisLoader"
+
+        case .incompatible(let reason):
+            statusLabel.stringValue =
+                "🔴 \(selectedFramework.rawValue): \(reason)"
+
+            statusLabel.textColor =
+                .systemRed
         }
+
+        installButton.isHidden =
+            installation.isInstalled
+
+        uninstallButton.isHidden =
+            !installation.isInstalled
+
+        // These controls currently describe BepInEx's
+        // Doorstop-based launch behavior and log.
+        launchInfoLabel.isHidden =
+            selectedFramework != .bepInEx ||
+            !installation.isInstalled
+
+        viewLogButton.isHidden =
+            selectedFramework != .bepInEx ||
+            !installation.isInstalled
+
+        modsHeader.stringValue =
+            "\(selectedFramework.rawValue.uppercased()) MODS"
+
+        addModButton.isEnabled =
+            installation.isInstalled
+
+        if !installation.isInstalled {
+            mods = []
+            modTableView.reloadData()
+        }
+
+    }
+
+    @objc private func frameworkChanged() {
+        guard
+            let title = frameworkPopUp.titleOfSelectedItem,
+            let framework = ModFramework.allCases.first(
+                where: {
+                    $0.rawValue == title
+                }
+            )
+        else {
+            return
+        }
+
+        selectedFramework = framework
+
+        refresh()
     }
 
     // ── Button actions ─────────────────────────
@@ -363,12 +499,15 @@ class GameDetailViewController: NSViewController {
     }
 
     @objc private func installClicked() {
-        guard let game = game else { return }
-        installButton.isEnabled  = false
-        progressBar.isHidden     = false
-        progressLabel.isHidden   = false
+        guard let game = game else {
+            return
+        }
 
-        BepInExInstaller.shared.install(
+        installButton.isEnabled = false
+        progressBar.isHidden = false
+        progressLabel.isHidden = false
+
+        selectedProvider.install(
             into: game,
             progress: { [weak self] pct, msg in
                 DispatchQueue.main.async {
@@ -378,19 +517,33 @@ class GameDetailViewController: NSViewController {
             },
             completion: { [weak self] result in
                 DispatchQueue.main.async {
-                    self?.progressBar.isHidden   = true
-                    self?.progressLabel.isHidden = true
-                    self?.installButton.isEnabled = true
+                    guard let self else {
+                        return
+                    }
+
+                    self.progressBar.isHidden = true
+                    self.progressLabel.isHidden = true
+                    self.installButton.isEnabled = true
+
                     switch result {
+
                     case .success:
-                        self?.showAlert("BepisLoader installed successfully!", style: .informational)
-                        if let dir = self?.game?.gameDirectory, let oldGame = self?.game {
-                            var updatedGame = oldGame
-                            self?.game = updatedGame
-                            self?.onGameUpdated?(updatedGame)
+                        self.showAlert(
+                            "\(self.selectedFramework.rawValue) installed successfully!",
+                            style: .informational
+                        )
+
+                        self.refresh()
+
+                        if let game = self.game {
+                            self.onGameUpdated?(game)
                         }
-                    case .failure(let err):
-                        self?.showAlert("Installation failed:\n\(err.localizedDescription)", style: .critical)
+
+                    case .failure(let error):
+                        self.showAlert(
+                            "Installation failed:\n\(error.localizedDescription)",
+                            style: .critical
+                        )
                     }
                 }
             }
@@ -398,23 +551,55 @@ class GameDetailViewController: NSViewController {
     }
 
     @objc private func uninstallClicked() {
-        guard let game = game else { return }
+        guard let game = game else {
+            return
+        }
+
+        let framework = selectedFramework
+
         let alert = NSAlert()
-        alert.messageText     = "Uninstall BepisLoader?"
-        alert.informativeText = "This will remove BepInEx and all plugins from \(game.name)."
-        alert.addButton(withTitle: "Uninstall")
-        alert.addButton(withTitle: "Cancel")
+
+        alert.messageText =
+            "Uninstall \(framework.rawValue)?"
+
+        alert.informativeText =
+            "This will remove \(framework.rawValue) from \(game.name)."
+
+        alert.addButton(
+            withTitle: "Uninstall"
+        )
+
+        alert.addButton(
+            withTitle: "Cancel"
+        )
+
         alert.alertStyle = .warning
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        guard alert.runModal() ==
+                .alertFirstButtonReturn
+        else {
+            return
+        }
 
         do {
-            try BepInExInstaller.shared.uninstall(from: game)
-            showAlert("BepisLoader uninstalled.", style: .informational)
-            var updatedGame = game
-            self.game = updatedGame
-            self.onGameUpdated?(updatedGame)
+            try selectedProvider.uninstall(
+                from: game
+            )
+
+            showAlert(
+                "\(framework.rawValue) uninstalled.",
+                style: .informational
+            )
+
+            refresh()
+
+            onGameUpdated?(game)
+
         } catch {
-            showAlert("Uninstall failed:\n\(error.localizedDescription)", style: .critical)
+            showAlert(
+                "Uninstall failed:\n\(error.localizedDescription)",
+                style: .critical
+            )
         }
     }
 
@@ -424,13 +609,21 @@ class GameDetailViewController: NSViewController {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = []
         panel.allowsOtherFileTypes = true
-        panel.message = "Select mod .dll file(s)"
-        panel.allowsMultipleSelection = true
+        panel.canChooseFiles =
+            selectedFramework == .bepInEx
+        panel.canChooseDirectories =
+            selectedFramework == .reloadedII
+        panel.message =
+            selectedFramework == .bepInEx
+            ? "Select BepInEx mod .dll file(s)"
+            : "Select Reloaded-II mod folder"
+        panel.allowsMultipleSelection =
+            selectedFramework == .bepInEx
         panel.begin { [weak self] response in
             guard response == .OK else { return }
             for url in panel.urls {
                 do {
-                    try BepInExModManager.shared.installMod(from: url, into: game)
+                    try self?.selectedModManager.installMod(from: url, into: game)
                 } catch {
                     self?.showAlert("Failed to install \(url.lastPathComponent):\n\(error.localizedDescription)", style: .warning)
                 }
@@ -535,7 +728,11 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
         mod.isEnabled = sender.state == .on
         mods[sender.tag] = mod
         do {
-            try BepInExModManager.shared.setModEnabled(mod.isEnabled, mod: mod, in: game)
+            try selectedModManager.setModEnabled(
+                mod.isEnabled,
+                mod: mod,
+                in: game
+            )
         } catch {
             showAlert("Could not toggle mod:\n\(error.localizedDescription)", style: .warning)
         }
