@@ -87,40 +87,17 @@ struct GameInstall: Identifiable, Hashable, Codable {
     let bottle:         Bottle
     var overrideLayer:  CompatibilityLayer?
     var unityType:      UnityType = .unknown
-    var bepInExStatus:  BepInExStatus
-
-    enum BepInExStatus: Hashable, Codable {
-        case notInstalled
-        case installed(version: String)
-        case incompatible(reason: String)
-    }
-
     init(name: String, executablePath: URL, bottle: Bottle) {
         self.id              = UUID()
         self.name            = name
         self.executablePath  = executablePath
         self.bottle          = bottle
-        self.bepInExStatus   = .notInstalled
     }
 
     /// Directory that contains the game .exe
     var gameDirectory: URL { executablePath.deletingLastPathComponent() }
 
-    /// BepInEx root that would be installed here
-    var bepInExRoot: URL { gameDirectory.appendingPathComponent("BepInEx") }
 
-    /// Plugins folder
-    var pluginsFolder: URL { bepInExRoot.appendingPathComponent("plugins") }
-
-    /// doorstop_config.ini path
-    var doorstopConfig: URL { gameDirectory.appendingPathComponent("doorstop_config.ini") }
-
-    /// winhttp.dll path (Doorstop proxy)
-    var doorstopProxy: URL { gameDirectory.appendingPathComponent("winhttp.dll") }
-
-    var isBepInExInstalled: Bool {
-        FileManager.default.fileExists(atPath: bepInExRoot.path)
-    }
 }
 
 /// A BepInEx mod (plugin DLL + metadata)

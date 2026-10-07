@@ -27,22 +27,78 @@ final class BepInExProvider: ModFrameworkProvider {
     // ── Detection ─────────────────────────────
 
     func detect(in game: GameInstall) -> FrameworkInstallation {
-        let status: FrameworkStatus
+        let paths = BepInExPaths(game: game)
 
-        switch game.bepInExStatus {
-        case .notInstalled:
-            status = .notInstalled
-
-        case .installed(let version):
-            status = .installed(version: version)
-
-        case .incompatible(let reason):
-            status = .incompatible(reason: reason)
+        guard FileManager.default.fileExists(atPath: paths.root.path) else {
+            return FrameworkInstallation(
+                framework: framework,
+                status: .notInstalled
+            )
         }
 
+        if let version = try? String(
+            contentsOf: paths.versionFile,
+            encoding: .utf8
+        ) {
+            return FrameworkInstallation(
+                framework: framework,
+                status: .installed(
+                    version: version.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                )
+            )
+        }
+
+        let coreCandidates = [
+            paths.root.appendingPathComponent(
+                "core/BepInEx.Unity.IL2CPP.dll"
+            ),
+            paths.root.appendingPathComponent(
+                "core/BepInEx.Core.dll"
+            ),
+            paths.root.appendingPathComponent(
+                "core/BepInEx.dll"
+            )
+        ]
+
+        if coreCandidates.contains(where: {
+            FileManager.default.fileExists(atPath: $0.path)
+        }) {
+            return FrameworkInstallation(
+                framework: framework,
+                status: .installed(version: "unknown")
+            )
+        }
+
+        if let logText = try? String(
+            contentsOf: paths.log,
+            encoding: .utf8
+        ) {
+            let pattern =
+                #"BepInEx\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)"#
+
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               let match = regex.firstMatch(
+                    in: logText,
+                    range: NSRange(logText.startIndex..., in: logText)
+               ),
+               let range = Range(match.range(at: 1), in: logText) {
+
+                return FrameworkInstallation(
+                    framework: framework,
+                    status: .installed(
+                        version: String(logText[range])
+                    )
+                )
+            }
+        }
+
+        // A BepInEx directory exists even if its exact version
+        // cannot be determined.
         return FrameworkInstallation(
             framework: framework,
-            status: status
+            status: .installed(version: "unknown")
         )
     }
 

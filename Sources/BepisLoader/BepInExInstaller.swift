@@ -99,7 +99,7 @@ class BepInExInstaller {
                     game.gameDirectory.appendingPathComponent("version.dll"),
                     game.gameDirectory.appendingPathComponent("doorstop_config.ini"),
                     game.gameDirectory.appendingPathComponent(".doorstop_version"),
-                    game.bepInExRoot.appendingPathComponent("BepInEx.version")
+                    BepInExPaths(game: game).root.appendingPathComponent("BepInEx.version")
                 ] where FileManager.default.fileExists(atPath: f.path) {
                     try? FileManager.default.removeItem(at: f)
                 }
@@ -119,7 +119,7 @@ class BepInExInstaller {
                 progress(0.62, "Removing quarantine attributes…")
                 self.removeQuarantine(winhttp)
                 self.removeQuarantine(versionDll)
-                self.removeQuarantineRecursive(game.bepInExRoot)
+                self.removeQuarantineRecursive(BepInExPaths(game: game).root)
 
                 // 6. Doorstop config — always written, format depends on Mono vs IL2CPP
                 progress(0.68, "Writing Doorstop configuration…")
@@ -149,8 +149,8 @@ class BepInExInstaller {
 
     func uninstall(from game: GameInstall) throws {
         let fm = FileManager.default
-        if fm.fileExists(atPath: game.bepInExRoot.path) {
-            try fm.removeItem(at: game.bepInExRoot)
+        if fm.fileExists(atPath: BepInExPaths(game: game).root.path) {
+            try fm.removeItem(at: BepInExPaths(game: game).root)
         }
         for f in [
             game.gameDirectory.appendingPathComponent("winhttp.dll"),
@@ -259,7 +259,7 @@ redirectOutputLog=false
 ignoreDisableSwitch=false
 """
         }
-        do { try config.write(to: game.doorstopConfig, atomically: true, encoding: .utf8) }
+        do { try config.write(to: BepInExPaths(game: game).doorstopConfig, atomically: true, encoding: .utf8) }
         catch { throw InstallerError.configWriteFailed(error.localizedDescription) }
     }
 
@@ -399,7 +399,7 @@ ignoreDisableSwitch=false
 
         // Convert host path to Wine Z:\ path for use in the launch script
         let winePath = "Z:\\\\" + exePath.replacingOccurrences(of: "/", with: "\\\\")
-        let preloaderPath = "Z:\\\\" + game.bepInExRoot.path.replacingOccurrences(of: "/", with: "\\\\") + "\\\\core\\\\BepInEx.Preloader.dll"
+        let preloaderPath = "Z:\\\\" + BepInExPaths(game: game).root.path.replacingOccurrences(of: "/", with: "\\\\") + "\\\\core\\\\BepInEx.Preloader.dll"
 
         let script = """
 #!/usr/bin/env bash
@@ -828,21 +828,21 @@ exec "$(dirname "$0")/../../../MacOS/wine64" "\(winePath)" "$@"
 
     private func createFolderStructure(for game: GameInstall) throws {
         for dir in [
-            game.pluginsFolder,
-            game.bepInExRoot.appendingPathComponent("config"),
-            game.bepInExRoot.appendingPathComponent("patchers"),
+            BepInExPaths(game: game).plugins,
+            BepInExPaths(game: game).root.appendingPathComponent("config"),
+            BepInExPaths(game: game).root.appendingPathComponent("patchers"),
         ] {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
     }
 
     private func writeVersionFile(for game: GameInstall, version: String) throws {
-        let versionFile = game.bepInExRoot.appendingPathComponent("BepInEx.version")
+        let versionFile = BepInExPaths(game: game).root.appendingPathComponent("BepInEx.version")
         try version.write(to: versionFile, atomically: true, encoding: .utf8)
     }
 
     private func enableBepInExConsole(for game: GameInstall) throws {
-        let configDir = game.bepInExRoot.appendingPathComponent("config")
+        let configDir = BepInExPaths(game: game).root.appendingPathComponent("config")
         try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         let cfg = """
 [Logging.Console]

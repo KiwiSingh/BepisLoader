@@ -322,11 +322,11 @@ class GameDetailViewController: NSViewController {
         let activeLayer = game.overrideLayer ?? game.bottle.layer
         layerPopUp.selectItem(withTitle: activeLayer.rawValue)
         
-        installButton.isHidden    = game.isBepInExInstalled
-        uninstallButton.isHidden  = !game.isBepInExInstalled
-        launchInfoLabel.isHidden  = !game.isBepInExInstalled
+        installButton.isHidden    = BepInExProvider.shared.detect(in: game).isInstalled
+        uninstallButton.isHidden  = !BepInExProvider.shared.detect(in: game).isInstalled
+        launchInfoLabel.isHidden  = !BepInExProvider.shared.detect(in: game).isInstalled
 
-        switch game.bepInExStatus {
+        switch BepInExProvider.shared.detect(in: game).status {
         case .notInstalled:
             statusLabel.stringValue = "⚪ BepisLoader not installed"
             statusLabel.textColor   = .secondaryLabelColor
@@ -386,7 +386,6 @@ class GameDetailViewController: NSViewController {
                         self?.showAlert("BepisLoader installed successfully!", style: .informational)
                         if let dir = self?.game?.gameDirectory, let oldGame = self?.game {
                             var updatedGame = oldGame
-                            updatedGame.bepInExStatus = BottleScanner.shared.detectBepInExStatus(gameDir: dir)
                             self?.game = updatedGame
                             self?.onGameUpdated?(updatedGame)
                         }
@@ -412,7 +411,6 @@ class GameDetailViewController: NSViewController {
             try BepInExInstaller.shared.uninstall(from: game)
             showAlert("BepisLoader uninstalled.", style: .informational)
             var updatedGame = game
-            updatedGame.bepInExStatus = BottleScanner.shared.detectBepInExStatus(gameDir: game.gameDirectory)
             self.game = updatedGame
             self.onGameUpdated?(updatedGame)
         } catch {
@@ -556,7 +554,7 @@ extension GameDetailViewController: NSTableViewDataSource, NSTableViewDelegate {
 
     @objc private func viewLogClicked() {
         guard let game = game else { return }
-        let logURL = game.bepInExRoot.appendingPathComponent("LogOutput.log")
+        let logURL = BepInExPaths(game: game).log
         if FileManager.default.fileExists(atPath: logURL.path) {
             NSWorkspace.shared.open(logURL)
         } else {

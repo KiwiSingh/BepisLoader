@@ -364,7 +364,6 @@ class BottleScanner {
             if fm.fileExists(atPath: dataDir.path) {
                 var game = GameInstall(name: gameName, executablePath: exe, bottle: bottle)
                 game.unityType = detectUnityType(for: game)
-                game.bepInExStatus = detectBepInExStatus(gameDir: root)
                 results.append(game)
             }
         }
@@ -401,68 +400,6 @@ class BottleScanner {
             }
         }
         return .unknown
-    }
-
-    func detectBepInExStatus(gameDir: URL) -> GameInstall.BepInExStatus {
-        let bepInExDir = gameDir.appendingPathComponent("BepInEx")
-        guard fm.fileExists(atPath: bepInExDir.path) else { return .notInstalled }
-
-        // 1. Try BepInEx.version file (most reliable for our installer)
-        let versionFile = bepInExDir.appendingPathComponent("BepInEx.version")
-        if let version = try? String(contentsOf: versionFile, encoding: .utf8) {
-            return .installed(version: version.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-
-        // 2. Try to read version from Core DLL (BepInEx 5 or 6)
-        let coreDll5 = bepInExDir.appendingPathComponent("core/BepInEx.dll")
-        let coreDll6 = bepInExDir.appendingPathComponent("core/BepInEx.Core.dll")
-        let coreDllIL2CPP = bepInExDir.appendingPathComponent("core/BepInEx.Unity.IL2CPP.dll")
-        
-        let coreDll: URL
-        if fm.fileExists(atPath: coreDllIL2CPP.path) {
-            coreDll = coreDllIL2CPP
-        } else if fm.fileExists(atPath: coreDll6.path) {
-            coreDll = coreDll6
-        } else {
-            coreDll = coreDll5
-        }
-
-        if fm.fileExists(atPath: coreDll.path) {
-            if let version = readVersionFromAssembly(coreDll) {
-                return .installed(version: version)
-            }
-        }
-
-        // Fallback: check LogOutput.log
-        let logFile = bepInExDir.appendingPathComponent("LogOutput.log")
-        if let logText = try? String(contentsOf: logFile, encoding: .utf8) {
-            let pattern = "BepInEx\\s+([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?)"
-            if let regex = try? NSRegularExpression(pattern: pattern),
-               let match = regex.firstMatch(in: logText, range: NSRange(logText.startIndex..., in: logText)) {
-                if let range = Range(match.range(at: 1), in: logText) {
-                    return .installed(version: String(logText[range]))
-                }
-            }
-        }
-
-        if fm.fileExists(atPath: coreDll.path) {
-            return .installed(version: "unknown")
-        }
-        return .installed(version: "unknown")
-    }
-
-    private func readVersionFromAssembly(_ url: URL) -> String? {
-        // Real implementation would parse the PE header / managed assembly manifest.
-        // Here we check for a VERSION file that BepInEx installs.
-        let rootDir = url.deletingLastPathComponent().deletingLastPathComponent()
-        let rootVersionFile = rootDir.appendingPathComponent("BepInEx.version")
-        if let text = try? String(contentsOf: rootVersionFile, encoding: .utf8) {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        let coreVersionFile = url.deletingLastPathComponent().appendingPathComponent("BepInEx.version")
-        return try? String(contentsOf: coreVersionFile, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func homeDir() -> URL {

@@ -18,10 +18,10 @@ final class BepInExModManager: ModManaging {
     // ── Installed mod list ─────────────────────
 
     func installedMods(for game: GameInstall) -> [InstalledMod] {
-        guard fm.fileExists(atPath: game.pluginsFolder.path) else { return [] }
+        guard fm.fileExists(atPath: BepInExPaths(game: game).plugins.path) else { return [] }
 
         let contents = (try? fm.contentsOfDirectory(
-            at: game.pluginsFolder,
+            at: BepInExPaths(game: game).plugins,
             includingPropertiesForKeys: nil,
             options: .skipsHiddenFiles
         )) ?? []
@@ -38,11 +38,11 @@ final class BepInExModManager: ModManaging {
         let isScoped = dllURL.startAccessingSecurityScopedResource()
         defer { if isScoped { dllURL.stopAccessingSecurityScopedResource() } }
 
-        if !fm.fileExists(atPath: game.pluginsFolder.path) {
-            try fm.createDirectory(at: game.pluginsFolder, withIntermediateDirectories: true)
+        if !fm.fileExists(atPath: BepInExPaths(game: game).plugins.path) {
+            try fm.createDirectory(at: BepInExPaths(game: game).plugins, withIntermediateDirectories: true)
         }
 
-        let dest = game.pluginsFolder.appendingPathComponent(dllURL.lastPathComponent)
+        let dest = BepInExPaths(game: game).plugins.appendingPathComponent(dllURL.lastPathComponent)
 
         if fm.fileExists(atPath: dest.path) {
             try fm.removeItem(at: dest)
@@ -55,7 +55,7 @@ final class BepInExModManager: ModManaging {
     // ── Remove ─────────────────────────────────
 
     func removeMod(_ mod: InstalledMod, from game: GameInstall) throws {
-        let target = game.pluginsFolder.appendingPathComponent(mod.path.lastPathComponent)
+        let target = BepInExPaths(game: game).plugins.appendingPathComponent(mod.path.lastPathComponent)
         if fm.fileExists(atPath: target.path) {
             try fm.removeItem(at: target)
         }
@@ -71,15 +71,15 @@ final class BepInExModManager: ModManaging {
     // More reliably: we move the DLL to/from a "disabled" subfolder.
 
     func setModEnabled(_ enabled: Bool, mod: InstalledMod, in game: GameInstall) throws {
-        let activePath   = game.pluginsFolder.appendingPathComponent(mod.path.lastPathComponent)
-        let disabledDir  = game.pluginsFolder.appendingPathComponent(".disabled")
+        let activePath   = BepInExPaths(game: game).plugins.appendingPathComponent(mod.path.lastPathComponent)
+        let disabledDir  = BepInExPaths(game: game).plugins.appendingPathComponent(".disabled")
         let disabledPath = disabledDir.appendingPathComponent(mod.path.lastPathComponent)
 
         if enabled {
             // Move from disabled → active
             if fm.fileExists(atPath: disabledPath.path) {
-                if !fm.fileExists(atPath: game.pluginsFolder.path) {
-                    try fm.createDirectory(at: game.pluginsFolder, withIntermediateDirectories: true)
+                if !fm.fileExists(atPath: BepInExPaths(game: game).plugins.path) {
+                    try fm.createDirectory(at: BepInExPaths(game: game).plugins, withIntermediateDirectories: true)
                 }
                 try fm.moveItem(at: disabledPath, to: activePath)
             }

@@ -356,7 +356,7 @@ class GameListViewController: NSViewController, NSTableViewDataSource, NSTableVi
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let statusLabel: NSTextField
-        switch game.bepInExStatus {
+        switch BepInExProvider.shared.detect(in: game).status {
         case .notInstalled:         statusLabel = makeStatus("BepInEx not installed", color: .systemOrange)
         case .installed(let v):     statusLabel = makeStatus("BepInEx \(v) ✓", color: .systemGreen)
         case .incompatible(let r):  statusLabel = makeStatus("⚠ \(r)", color: .systemRed)

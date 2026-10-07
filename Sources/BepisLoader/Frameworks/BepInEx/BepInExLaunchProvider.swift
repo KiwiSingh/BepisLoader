@@ -27,7 +27,7 @@ final class BepInExLaunchProvider: GameLaunchProvider {
             : "core/BepInEx.Preloader.dll"
 
         configuration.environment["DOORSTOP_INVOKE_DLL_PATH"] = windowsPath(
-            for: game.bepInExRoot.appendingPathComponent(targetDLL),
+            for: BepInExPaths(game: game).root.appendingPathComponent(targetDLL),
             in: game.bottle
         )
 
