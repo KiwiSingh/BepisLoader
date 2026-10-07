@@ -80,6 +80,17 @@ final class ReloadedIIModManager: ModManaging {
             throw ReloadedIIModError.frameworkNotInstalled
         }
 
+        // Installation and application registration
+        // are intentionally separate concepts.
+        //
+        // If Reloaded-II already existed in this
+        // prefix before BepisLoader discovered it,
+        // register this game before installing its
+        // first Reloaded-II mod.
+        try ReloadedIIApplicationRegistry
+            .shared
+            .register(game)
+
         if !fm.fileExists(atPath: mods.path) {
             try fm.createDirectory(
                 at: mods,

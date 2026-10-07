@@ -87,6 +87,16 @@ final class ReloadedIIInstaller {
 
                 self.report(
                     progress,
+                    0.95,
+                    "Registering game with Reloaded-II…"
+                )
+
+                try ReloadedIIApplicationRegistry
+                    .shared
+                    .register(game)
+
+                self.report(
+                    progress,
                     1.0,
                     "Reloaded-II setup completed"
                 )

@@ -4,7 +4,7 @@ import Foundation
 //  ReloadedIIPaths
 //
 //  Discovers Reloaded-II inside the game's Wine
-//  prefix.
+//  prefix and maps paths between macOS and Wine.
 //
 //  Setup-Linux.exe installs Reloaded-II onto the
 //  Wine user's Desktop. Wine user names differ
@@ -24,13 +24,17 @@ struct ReloadedIIPaths {
         game.bottle.path
     }
 
-    var usersRoot: URL {
+    var driveC: URL {
         prefix
             .appendingPathComponent("drive_c")
+    }
+
+    var usersRoot: URL {
+        driveC
             .appendingPathComponent("users")
     }
 
-    // ── Installation discovery ────────────────
+    // ── Reloaded-II installation ──────────────
 
     var installationRoot: URL? {
         discoverInstallationRoot()
@@ -58,7 +62,79 @@ struct ReloadedIIPaths {
             .appendingPathComponent("Mods")
     }
 
-    // ── Discovery ─────────────────────────────
+    // Reloaded-II's default
+    // ApplicationConfigDirectory is "Apps",
+    // relative to the Reloaded-II installation.
+    var applications: URL? {
+        installationRoot?
+            .appendingPathComponent("Apps")
+    }
+
+    // ── Application config paths ──────────────
+
+    func applicationDirectory(
+        appId: String
+    ) -> URL? {
+        applications?
+            .appendingPathComponent(
+                appId,
+                isDirectory: true
+            )
+    }
+
+    func applicationConfig(
+        appId: String
+    ) -> URL? {
+        applicationDirectory(
+            appId: appId
+        )?
+        .appendingPathComponent(
+            "AppConfig.json"
+        )
+    }
+
+    // ── Wine path conversion ──────────────────
+
+    func windowsPath(
+        for hostURL: URL
+    ) -> String? {
+        let root = driveC
+            .standardizedFileURL
+            .path
+
+        let target = hostURL
+            .standardizedFileURL
+            .path
+
+        guard target == root ||
+              target.hasPrefix(root + "/")
+        else {
+            return nil
+        }
+
+        var relative = String(
+            target.dropFirst(root.count)
+        )
+
+        relative = relative
+            .trimmingCharacters(
+                in: CharacterSet(
+                    charactersIn: "/"
+                )
+            )
+
+        if relative.isEmpty {
+            return "C:\\"
+        }
+
+        return "C:\\" + relative
+            .replacingOccurrences(
+                of: "/",
+                with: "\\"
+            )
+    }
+
+    // ── Installation discovery ────────────────
 
     private func discoverInstallationRoot() -> URL? {
         guard let users = try? fm.contentsOfDirectory(
