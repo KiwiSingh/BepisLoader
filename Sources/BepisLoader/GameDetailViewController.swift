@@ -380,6 +380,91 @@ class GameDetailViewController: NSViewController {
         selectedProvider.detect(in: game)
     }
 
+    private func refreshReloadedIIUpdateStatus(
+        game: GameInstall,
+        installedVersion: String
+    ) {
+        let gameId =
+            game.id
+
+        ReloadedIIReleaseService.shared
+            .updateStatus(
+                installedVersion:
+                    installedVersion
+            ) {
+                [weak self]
+                status in
+
+                guard let self,
+                      let currentGame =
+                        self.game,
+                      currentGame.id
+                        == gameId,
+                      self.selectedFramework
+                        == .reloadedII
+                else {
+                    return
+                }
+
+                // Re-check the local installation
+                // so an async GitHub response can
+                // never overwrite status after an
+                // install/uninstall/version change.
+                let current =
+                    ReloadedIIProvider.shared
+                        .detect(
+                            in: currentGame
+                        )
+
+                guard current.isInstalled,
+                      current.version
+                        == installedVersion
+                else {
+                    return
+                }
+
+                switch status {
+
+                case .upToDate(
+                    let installed,
+                    _
+                ):
+                    self.statusLabel.stringValue =
+                        "🟢 Reloaded-II \(installed) installed · up to date"
+
+                    self.statusLabel.textColor =
+                        .systemGreen
+
+                case .updateAvailable(
+                    let installed,
+                    let latest
+                ):
+                    self.statusLabel.stringValue =
+                        "🟠 Reloaded-II \(installed) installed · \(latest) available"
+
+                    self.statusLabel.textColor =
+                        .systemOrange
+
+                case .newerThanLatest(
+                    let installed,
+                    _
+                ):
+                    self.statusLabel.stringValue =
+                        "🟢 Reloaded-II \(installed) installed · newer than latest stable"
+
+                    self.statusLabel.textColor =
+                        .systemGreen
+
+                case .unknown:
+                    // Keep the already-rendered
+                    // local installed status. A
+                    // failed network/API lookup is
+                    // not a framework failure.
+                    break
+                }
+            }
+    }
+
     private func refresh() {
         guard let game = game else {
             frameworkPopUp.selectItem(
@@ -457,6 +542,19 @@ let installation = frameworkInstallation(
             )
 
             modTableView.reloadData()
+
+            if selectedFramework
+                == .reloadedII,
+               let version,
+               !version.isEmpty,
+               version != "unknown"
+            {
+                refreshReloadedIIUpdateStatus(
+                    game: game,
+                    installedVersion:
+                        version
+                )
+            }
 
         case .incompatible(let reason):
             statusLabel.stringValue =
