@@ -85,18 +85,82 @@ struct GameInstall: Identifiable, Hashable, Codable {
     let name:           String
     let executablePath: URL
     let bottle:         Bottle
+
+    /// Runtime/filesystem environment containing
+    /// this game.
+    ///
+    /// Existing discovered games use `.localWine`.
+    /// VM-backed games such as Steamac will provide
+    /// an explicit guest environment.
+    let environment:    GameEnvironment
+
     var overrideLayer:  CompatibilityLayer?
     var unityType:      UnityType = .unknown
-    init(name: String, executablePath: URL, bottle: Bottle) {
-        self.id              = UUID()
-        self.name            = name
-        self.executablePath  = executablePath
-        self.bottle          = bottle
+    init(
+        name: String,
+        executablePath: URL,
+        bottle: Bottle,
+        environment: GameEnvironment? = nil
+    ) {
+        self.id =
+            UUID()
+
+        self.name =
+            name
+
+        self.executablePath =
+            executablePath
+
+        self.bottle =
+            bottle
+
+        self.environment =
+            environment
+            ?? .localWine(
+                bottle: bottle
+            )
     }
 
-    /// Directory that contains the game .exe
-    var gameDirectory: URL { executablePath.deletingLastPathComponent() }
+    /// Directory that contains the game .exe.
+    ///
+    /// This remains host-only for compatibility with
+    /// the existing Wine providers. Steamac games will
+    /// use environment paths/bridge access instead.
+    var gameDirectory: URL {
+        executablePath
+            .deletingLastPathComponent()
+    }
 
+    /// True when ordinary macOS FileManager operations
+    /// are valid for this game's paths.
+    var isHostAccessible:
+        Bool
+    {
+        environment
+            .isHostAccessible
+    }
 
+    /// Explicit host-side executable path.
+    ///
+    /// Callers being migrated for Steamac should use
+    /// this instead of assuming every GameInstall has
+    /// a locally accessible executable.
+    var hostExecutablePath:
+        URL?
+    {
+        guard isHostAccessible
+        else {
+            return nil
+        }
+
+        return executablePath
+    }
+
+    var hostGameDirectory:
+        URL?
+    {
+        hostExecutablePath?
+            .deletingLastPathComponent()
+    }
 }
 
