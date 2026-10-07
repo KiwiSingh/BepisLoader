@@ -2,8 +2,8 @@ import Foundation
 
 // ─────────────────────────────────────────────
 //  GameLauncher
-//  Launches a Windows game via the correct Wine
-//  binary with BepInEx environment variables set.
+//  Launches a Windows game through its selected
+//  compatibility environment and mod framework.
 // ─────────────────────────────────────────────
 
 class GameLauncher {
@@ -38,50 +38,39 @@ class GameLauncher {
             throw LaunchError.bepInExNotInstalled
         }
 
-        let installer = BepInExInstaller.shared
         let layerToUse = game.overrideLayer ?? game.bottle.layer
-        let tempBottle = Bottle(name: game.bottle.name, path: game.bottle.path, layer: layerToUse, winePID: game.bottle.winePID)
-        guard let wineBin = installer.findWineBinary(for: tempBottle) else {
+        let tempBottle = Bottle(
+            name: game.bottle.name,
+            path: game.bottle.path,
+            layer: layerToUse,
+            winePID: game.bottle.winePID
+        )
+
+        let wineEnvironment = WineEnvironment.shared
+
+        guard let wineBin = wineEnvironment.findWineBinary(for: tempBottle) else {
             throw LaunchError.wineBinaryNotFound
         }
 
-        var env = installer.environmentForBottle(tempBottle)
-
-        // BepInEx / Doorstop environment variables
-        env["DOORSTOP_ENABLE"]           = "TRUE"
-        env["WINEDLLOVERRIDES"]          = "winhttp=n,b;version=n,b"
-        
-        let targetDll = game.unityType == .il2cpp ? "core/BepInEx.Unity.IL2CPP.dll" : "core/BepInEx.Preloader.dll"
-        env["DOORSTOP_INVOKE_DLL_PATH"]  = windowsPath(
-            for: game.bepInExRoot.appendingPathComponent(targetDll),
-            in: game.bottle
+        var configuration = GameLaunchConfiguration(
+            environment: wineEnvironment.environment(for: tempBottle),
+            arguments: [windowsPathForExe(game.executablePath)]
         )
-        env["DOORSTOP_CORLIB_OVERRIDE"]  = "FALSE"
-        
-        if game.unityType == .il2cpp {
-            // IL2CPP requires pointing to the included Mono runtime
-            env["DOORSTOP_MONO_RUNTIME_LIB"] = windowsPath(
-                for: game.gameDirectory.appendingPathComponent("mono/MonoBleedingEdge/EmbedRuntime/mono-2.0-sgen.dll"),
-                in: game.bottle
-            )
-            env["DOORSTOP_MONO_CONFIG_DIR"]  = windowsPath(
-                for: game.gameDirectory.appendingPathComponent("mono/MonoBleedingEdge/etc"),
-                in: game.bottle
+
+        if requireBepInEx {
+            BepInExLaunchProvider.shared.configureLaunch(
+                for: game,
+                configuration: &configuration
             )
         }
-        
-        // Mono / IL2CPP path hint (needed for BepInEx 6)
-        env["BEPINEX_ENABLED"]           = "1"
 
-        // Make Wine not show error dialogs and hide wine spam
-        env["WINEDEBUG"]                 = "-all"
-        // Keep separate DLL override entries delimited with a semicolon.
-        env["WINEDLLOVERRIDES"]          = "winhttp=n,b;version=n,b"
+        // Suppress Wine diagnostics unless a framework explicitly changes it.
+        configuration.environment["WINEDEBUG"] = "-all"
 
         let proc = Process()
         proc.executableURL    = URL(fileURLWithPath: wineBin)
-        proc.arguments        = [windowsPathForExe(game.executablePath)]
-        proc.environment      = env
+        proc.arguments        = configuration.arguments
+        proc.environment      = configuration.environment
         proc.currentDirectoryURL = game.gameDirectory
 
         // Pipe logs so we can surface them in the UI
@@ -124,28 +113,6 @@ class GameLauncher {
     }
 
     // ── Path translation ───────────────────────
-
-    /// Convert a macOS host path inside a bottle to a Windows Z:\ path for Wine.
-    private func windowsPath(for url: URL, in bottle: Bottle) -> String {
-        let path = url.path
-        let dosdevices = bottle.path.appendingPathComponent("dosdevices")
-        
-        if let drives = try? FileManager.default.contentsOfDirectory(at: dosdevices, includingPropertiesForKeys: nil) {
-            for drive in drives {
-                let driveName = drive.lastPathComponent
-                if driveName == "c:" || driveName == "z:" { continue }
-                if let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: drive.path) {
-                    let absoluteDest = URL(fileURLWithPath: dest, relativeTo: dosdevices).standardized.path
-                    if path.hasPrefix(absoluteDest) {
-                        var relative = String(path.dropFirst(absoluteDest.count))
-                        if relative.hasPrefix("/") { relative = String(relative.dropFirst()) }
-                        return "\(driveName.uppercased())\\\(relative.replacingOccurrences(of: "/", with: "\\"))"
-                    }
-                }
-            }
-        }
-        return "Z:\(path.replacingOccurrences(of: "/", with: "\\"))"
-    }
 
     /// Return the exe path in whatever form Wine wants it.
     private func windowsPathForExe(_ url: URL) -> String {
