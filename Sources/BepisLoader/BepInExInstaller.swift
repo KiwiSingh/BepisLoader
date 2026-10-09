@@ -55,6 +55,7 @@ class BepInExInstaller {
         case configWriteFailed(String)
         case gameDirectoryNotFound
         case alreadyInstalled
+        case invalidSteamacGame
 
         var errorDescription: String? {
             switch self {
@@ -63,6 +64,8 @@ class BepInExInstaller {
             case .configWriteFailed(let r): return "Config write failed: \(r)"
             case .gameDirectoryNotFound:    return "Game directory not found"
             case .alreadyInstalled:         return "BepInEx is already installed"
+            case .invalidSteamacGame:
+                return "The selected game is not backed by a valid Steamac Steam installation."
             }
         }
     }
@@ -75,6 +78,16 @@ class BepInExInstaller {
         progress: @escaping ProgressHandler,
         completion: @escaping CompletionHandler
     ) {
+        if case .steamac = game.backing {
+            installIntoSteamac(
+                game,
+                asset: asset,
+                progress: progress,
+                completion: completion
+            )
+            return
+        }
+
         let is64Bit  = detectIs64Bit(game.executablePath)
         let isIL2CPP = game.unityType == .il2cpp
         let release  = asset ?? BepInExInstaller.latestStable(is64Bit: is64Bit, isIL2CPP: isIL2CPP)
@@ -148,19 +161,602 @@ class BepInExInstaller {
     }
 
     func uninstall(from game: GameInstall) throws {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: BepInExPaths(game: game).root.path) {
-            try fm.removeItem(at: BepInExPaths(game: game).root)
+        if case .steamac(
+            let appId,
+            let installPath,
+            _,
+            _
+        ) = game.backing {
+            guard let endpoint =
+                    SteamacBridge.shared
+                        .endpoints()
+                        .first
+            else {
+                throw SteamacBridgeError
+                    .noRunningInstance
+            }
+
+            let remoteItems = [
+                BepInExPaths.guestJoin(
+                    installPath,
+                    "BepInEx"
+                ),
+                BepInExPaths.guestJoin(
+                    installPath,
+                    "winhttp.dll"
+                ),
+                BepInExPaths.guestJoin(
+                    installPath,
+                    "version.dll"
+                ),
+                BepInExPaths.guestJoin(
+                    installPath,
+                    "doorstop_config.ini"
+                ),
+                BepInExPaths.guestJoin(
+                    installPath,
+                    ".doorstop_version"
+                )
+            ]
+
+            for item in remoteItems {
+                // Restore the user's original Steam launch options
+                // before removing Doorstop/BepInEx from the guest.
+                try SteamacBridge.shared
+                    .deactivateBepInEx(
+                        appId: appId,
+                        endpoint: endpoint
+                    )
+
+                try SteamacBridge.shared
+                    .removeGuestItem(
+                        at:
+                            item,
+                        endpoint:
+                            endpoint
+                    )
+            }
+
+            return
         }
+
+        let fm =
+            FileManager.default
+
+        if fm.fileExists(
+            atPath:
+                BepInExPaths(
+                    game: game
+                )
+                .root
+                .path
+        ) {
+            try fm.removeItem(
+                at:
+                    BepInExPaths(
+                        game: game
+                    )
+                    .root
+            )
+        }
+
         for f in [
-            game.gameDirectory.appendingPathComponent("winhttp.dll"),
-            game.gameDirectory.appendingPathComponent("version.dll"),
-            game.gameDirectory.appendingPathComponent("doorstop_config.ini"),
-            game.gameDirectory.appendingPathComponent(".doorstop_version"),
-        ] where fm.fileExists(atPath: f.path) {
-            try fm.removeItem(at: f)
+            game.gameDirectory.appendingPathComponent(
+                "winhttp.dll"
+            ),
+            game.gameDirectory.appendingPathComponent(
+                "version.dll"
+            ),
+            game.gameDirectory.appendingPathComponent(
+                "doorstop_config.ini"
+            ),
+            game.gameDirectory.appendingPathComponent(
+                ".doorstop_version"
+            ),
+        ] where fm.fileExists(
+            atPath:
+                f.path
+        ) {
+            try fm.removeItem(
+                at:
+                    f
+            )
         }
     }
+
+    // ── Steamac installation ────────────────────
+
+    private func installIntoSteamac(
+        _ game: GameInstall,
+        asset: ReleaseAsset?,
+        progress: @escaping ProgressHandler,
+        completion: @escaping CompletionHandler
+    ) {
+        DispatchQueue.global(
+            qos: .userInitiated
+        ).async {
+            do {
+                guard let endpoint =
+                        SteamacBridge.shared
+                            .endpoints()
+                            .first
+                else {
+                    throw SteamacBridgeError
+                        .noRunningInstance
+                }
+
+                guard case .steamac(
+                    _,
+                    let installPath,
+                    _,
+                    _
+                ) = game.backing
+                else {
+                    throw InstallerError
+                        .gameDirectoryNotFound
+                }
+
+                // Automatic architecture probing still depends on a
+                // host-visible PE file. Until guest PE metadata lands,
+                // callers must provide the exact BepInEx release asset.
+                guard let release = asset
+                else {
+                    throw InstallerError
+                        .downloadFailed(
+                            "Steamac installation currently requires an explicit BepInEx release asset because guest PE architecture probing is not implemented yet."
+                        )
+                }
+
+                progress(
+                    0.00,
+                    "Preparing Steamac installation…"
+                )
+
+                let gameInfo =
+                    try SteamacBridge.shared
+                        .guestFileInfo(
+                            at: installPath,
+                            endpoint: endpoint
+                        )
+
+                guard gameInfo.kind
+                        == .directory
+                else {
+                    throw InstallerError
+                        .gameDirectoryNotFound
+                }
+
+                progress(
+                    0.05,
+                    "Downloading BepInEx \(release.version)…"
+                )
+
+                let zipURL =
+                    try self.downloadRelease(
+                        release
+                    ) {
+                        value in
+
+                        progress(
+                            0.05 + value * 0.35,
+                            "Downloading… \(Int(value * 100))%"
+                        )
+                    }
+
+                progress(
+                    0.42,
+                    "Staging BepInEx…"
+                )
+
+                let staging =
+                    FileManager.default
+                        .temporaryDirectory
+                        .appendingPathComponent(
+                            "BepisLoader-Steamac-\(UUID().uuidString)",
+                            isDirectory: true
+                        )
+
+                defer {
+                    try? FileManager.default
+                        .removeItem(
+                            at: staging
+                        )
+                }
+
+                try FileManager.default
+                    .createDirectory(
+                        at: staging,
+                        withIntermediateDirectories: true
+                    )
+
+                try self.extract(
+                    zipURL,
+                    into: staging
+                )
+
+                // Mirror winhttp.dll as version.dll just like the
+                // proven local pipeline.
+                let stagedWinhttp =
+                    staging.appendingPathComponent(
+                        "winhttp.dll"
+                    )
+
+                let stagedVersion =
+                    staging.appendingPathComponent(
+                        "version.dll"
+                    )
+
+                if FileManager.default
+                    .fileExists(
+                        atPath:
+                            stagedWinhttp.path
+                    )
+                {
+                    try? FileManager.default
+                        .copyItem(
+                            at: stagedWinhttp,
+                            to: stagedVersion
+                        )
+                }
+
+                let isIL2CPP =
+                    game.unityType
+                        == .il2cpp
+
+                let doorstop =
+                    self.doorstopConfigText(
+                        isIL2CPP:
+                            isIL2CPP
+                    )
+
+                try doorstop.write(
+                    to:
+                        staging.appendingPathComponent(
+                            "doorstop_config.ini"
+                        ),
+                    atomically:
+                        true,
+                    encoding:
+                        .utf8
+                )
+
+                let versionFile =
+                    staging
+                        .appendingPathComponent(
+                            "BepInEx",
+                            isDirectory: true
+                        )
+                        .appendingPathComponent(
+                            "BepInEx.version"
+                        )
+
+                try FileManager.default
+                    .createDirectory(
+                        at:
+                            versionFile
+                                .deletingLastPathComponent(),
+                        withIntermediateDirectories:
+                            true
+                    )
+
+                try release.version.write(
+                    to:
+                        versionFile,
+                    atomically:
+                        true,
+                    encoding:
+                        .utf8
+                )
+
+                progress(
+                    0.55,
+                    "Uploading to Steamac…"
+                )
+
+                try self.uploadDirectoryToSteamac(
+                    staging,
+                    guestRoot:
+                        installPath,
+                    endpoint:
+                        endpoint
+                ) {
+                    completed,
+                    total in
+
+                    let fraction =
+                        total == 0
+                        ? 1.0
+                        : Double(completed)
+                            / Double(total)
+
+                    progress(
+                        0.55
+                            + fraction * 0.40,
+                        "Uploading… \(completed)/\(total)"
+                    )
+                }
+
+                progress(
+                    0.96,
+                    "BepInEx files installed."
+                )
+
+                // Do NOT patch the local Wine registry/configuration.
+                // Steamac uses Proton inside the guest; its launch-time
+                // DLL override belongs to the next integration patch.
+                guard case .steamac(
+                    let appId,
+                    _,
+                    _,
+                    _
+                ) = game.backing
+                else {
+                    throw InstallerError
+                        .invalidSteamacGame
+                }
+
+                progress(
+                    0.98,
+                    "Configuring Steam launch integration…"
+                )
+
+                do {
+                    try SteamacBridge.shared
+                        .activateBepInEx(
+                            appId: appId,
+                            endpoint: endpoint
+                        )
+                } catch {
+                    // Activation is the commit point. If it fails,
+                    // remove the payload we just uploaded so the
+                    // installation remains transactional from the
+                    // user's perspective.
+                    let rollbackItems = [
+                        BepInExPaths.guestJoin(
+                            installPath,
+                            "BepInEx"
+                        ),
+                        BepInExPaths.guestJoin(
+                            installPath,
+                            "winhttp.dll"
+                        ),
+                        BepInExPaths.guestJoin(
+                            installPath,
+                            "version.dll"
+                        ),
+                        BepInExPaths.guestJoin(
+                            installPath,
+                            "doorstop_config.ini"
+                        ),
+                        BepInExPaths.guestJoin(
+                            installPath,
+                            ".doorstop_version"
+                        )
+                    ]
+
+                    for item in rollbackItems {
+                        try? SteamacBridge.shared
+                            .removeGuestItem(
+                                at: item,
+                                endpoint: endpoint
+                            )
+                    }
+
+                    throw error
+                }
+
+                progress(
+                    1.00,
+                    "BepInEx installed and Steam configured."
+                )
+
+                DispatchQueue.main.async {
+                    completion(
+                        .success(())
+                    )
+                }
+
+            } catch {
+                DispatchQueue.main.async {
+                    completion(
+                        .failure(
+                            error
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+
+    private func uploadDirectoryToSteamac(
+        _ sourceRoot: URL,
+        guestRoot: String,
+        endpoint: SteamacBridgeEndpoint,
+        progress: (Int, Int) -> Void
+    ) throws {
+        let fm =
+            FileManager.default
+
+        guard let enumerator =
+                fm.enumerator(
+                    at: sourceRoot,
+                    includingPropertiesForKeys: [
+                        .isDirectoryKey,
+                        .isRegularFileKey,
+                        .isSymbolicLinkKey
+                    ],
+                    options: [
+                        .skipsHiddenFiles
+                    ]
+                )
+        else {
+            throw InstallerError
+                .extractionFailed(
+                    "Could not enumerate staged BepInEx files."
+                )
+        }
+
+        var directories:
+            [(URL, String)] = []
+
+        var files:
+            [(URL, String)] = []
+
+        while let item =
+                enumerator.nextObject()
+                    as? URL
+        {
+            let values =
+                try item.resourceValues(
+                    forKeys: [
+                        .isDirectoryKey,
+                        .isRegularFileKey,
+                        .isSymbolicLinkKey
+                    ]
+                )
+
+            // Never transport symlinks from an archive/staging tree.
+            if values.isSymbolicLink
+                    == true
+            {
+                enumerator.skipDescendants()
+                continue
+            }
+
+            let relative =
+                String(
+                    item.path
+                        .dropFirst(
+                            sourceRoot.path.count
+                        )
+                )
+                .trimmingCharacters(
+                    in:
+                        CharacterSet(
+                            charactersIn:
+                                "/"
+                        )
+                )
+
+            guard !relative.isEmpty
+            else {
+                continue
+            }
+
+            let guestPath =
+                BepInExPaths.guestJoin(
+                    guestRoot,
+                    relative
+                )
+
+            if values.isDirectory
+                    == true
+            {
+                directories.append(
+                    (
+                        item,
+                        guestPath
+                    )
+                )
+            } else if values.isRegularFile
+                        == true
+            {
+                files.append(
+                    (
+                        item,
+                        guestPath
+                    )
+                )
+            }
+        }
+
+        // Parents before children.
+        directories.sort {
+            $0.1.count
+                < $1.1.count
+        }
+
+        for (_, path)
+            in directories
+        {
+            try SteamacBridge.shared
+                .createGuestDirectory(
+                    path,
+                    endpoint:
+                        endpoint
+                )
+        }
+
+        let total =
+            files.count
+
+        progress(
+            0,
+            total
+        )
+
+        for (
+            index,
+            item
+        ) in files.enumerated()
+        {
+            try SteamacBridge.shared
+                .uploadGuestFile(
+                    from:
+                        item.0,
+                    to:
+                        item.1,
+                    endpoint:
+                        endpoint
+                )
+
+            progress(
+                index + 1,
+                total
+            )
+        }
+    }
+
+
+    private func doorstopConfigText(
+        isIL2CPP: Bool
+    ) -> String {
+        let targetPath =
+            isIL2CPP
+            ? "BepInEx\\core\\BepInEx.Unity.IL2CPP.dll"
+            : "BepInEx\\core\\BepInEx.Preloader.dll"
+
+        if isIL2CPP {
+            return """
+[General]
+enabled = true
+target_assembly = \(targetPath)
+redirect_output_log = false
+boot_config_override =
+ignore_disable_switch = false
+
+[UnityMono]
+dll_search_path_override =
+debug_enabled = false
+debug_address = 127.0.0.1:10000
+debug_suspend = false
+
+[Il2Cpp]
+coreclr_path = dotnet\\coreclr.dll
+corlib_dir = dotnet
+"""
+        }
+
+        return """
+[UnityDoorstop]
+enabled=true
+targetAssembly=\(targetPath)
+redirectOutputLog=false
+ignoreDisableSwitch=false
+"""
+    }
+
 
     // ── Download ───────────────────────────────
 
@@ -217,50 +813,75 @@ class BepInExInstaller {
     //  an absolute Windows path, which in Wine is the Z:\ mapping of the
     //  macOS host path.
 
-    private func writeDoorstopConfig(for game: GameInstall, isIL2CPP: Bool) throws {
-        // BepInEx 5 (Mono)  → Doorstop v3: [UnityDoorstop] / targetAssembly
-        // BepInEx 6 (IL2CPP) → Doorstop v4: [General] / target_assembly + [Il2Cpp] section
-        
-        let targetDll = isIL2CPP ? "BepInEx\\core\\BepInEx.Unity.IL2CPP.dll" : "BepInEx\\core\\BepInEx.Preloader.dll"
-        var targetPath = targetDll
-        
-        // For GameMac, use an absolute Z:\ path because game files are often on a separate volume
-        if game.bottle.layer == .gameMac {
-            let winFormattedPath = game.gameDirectory.appendingPathComponent(targetDll.replacingOccurrences(of: "\\", with: "/")).path.replacingOccurrences(of: "/", with: "\\")
-            targetPath = "Z:" + winFormattedPath
+    private func writeDoorstopConfig(
+        for game: GameInstall,
+        isIL2CPP: Bool
+    ) throws {
+        var config =
+            doorstopConfigText(
+                isIL2CPP:
+                    isIL2CPP
+            )
+
+        // GameMac requires an absolute Z:\ target because its game
+        // files can live outside the Wine prefix.
+        if game.bottle.layer
+                == .gameMac
+        {
+            let targetDll =
+                isIL2CPP
+                ? "BepInEx\\core\\BepInEx.Unity.IL2CPP.dll"
+                : "BepInEx\\core\\BepInEx.Preloader.dll"
+
+            let winFormattedPath =
+                game.gameDirectory
+                    .appendingPathComponent(
+                        targetDll.replacingOccurrences(
+                            of: "\\",
+                            with: "/"
+                        )
+                    )
+                    .path
+                    .replacingOccurrences(
+                        of: "/",
+                        with: "\\"
+                    )
+
+            let absoluteTarget =
+                "Z:" + winFormattedPath
+
+            let relativeTarget =
+                isIL2CPP
+                ? "BepInEx\\core\\BepInEx.Unity.IL2CPP.dll"
+                : "BepInEx\\core\\BepInEx.Preloader.dll"
+
+            config =
+                config.replacingOccurrences(
+                    of:
+                        relativeTarget,
+                    with:
+                        absoluteTarget
+                )
         }
 
-        let config: String
-        if isIL2CPP {
-            config = """
-[General]
-enabled = true
-target_assembly = \(targetPath)
-redirect_output_log = false
-boot_config_override =
-ignore_disable_switch = false
-
-[UnityMono]
-dll_search_path_override =
-debug_enabled = false
-debug_address = 127.0.0.1:10000
-debug_suspend = false
-
-[Il2Cpp]
-coreclr_path = dotnet\\coreclr.dll
-corlib_dir = dotnet
-"""
-        } else {
-            config = """
-[UnityDoorstop]
-enabled=true
-targetAssembly=\(targetPath)
-redirectOutputLog=false
-ignoreDisableSwitch=false
-"""
+        do {
+            try config.write(
+                to:
+                    BepInExPaths(
+                        game: game
+                    )
+                    .doorstopConfig,
+                atomically:
+                    true,
+                encoding:
+                    .utf8
+            )
+        } catch {
+            throw InstallerError
+                .configWriteFailed(
+                    error.localizedDescription
+                )
         }
-        do { try config.write(to: BepInExPaths(game: game).doorstopConfig, atomically: true, encoding: .utf8) }
-        catch { throw InstallerError.configWriteFailed(error.localizedDescription) }
     }
 
     // ── Wine registry override (user.reg) ──────

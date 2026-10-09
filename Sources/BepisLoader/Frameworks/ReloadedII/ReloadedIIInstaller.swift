@@ -36,64 +36,19 @@ final class ReloadedIIInstaller {
                     "Preparing Reloaded-II installation…"
                 )
 
-                let bottle = self.effectiveBottle(for: game)
+                switch game.backing {
+                case .localWine:
+                    try self.installIntoLocalWine(
+                        game,
+                        progress: progress
+                    )
 
-                guard let wineBinary =
-                    self.wineEnvironment.findWineBinary(for: bottle)
-                else {
-                    throw InstallerError.wineBinaryNotFound
-                }
-
-                self.report(
-                    progress,
-                    0.15,
-                    "Downloading Reloaded-II Setup-Linux.exe…"
-                )
-
-                let setup = try self.downloadInstaller()
-
-                defer {
-                    try? self.fm.removeItem(at: setup)
-                }
-
-                self.report(
-                    progress,
-                    0.55,
-                    "Launching Reloaded-II installer…"
-                )
-
-                let result = try self.runInstaller(
-                    setup,
-                    wineBinary: wineBinary,
-                    bottle: bottle
-                )
-
-                guard result.exitCode == 0 else {
-                    throw InstallerError.installerFailed(
-                        exitCode: result.exitCode,
-                        output: result.output
+                case .steamac:
+                    try self.installIntoSteamac(
+                        game,
+                        progress: progress
                     )
                 }
-
-                self.report(
-                    progress,
-                    0.90,
-                    "Verifying Reloaded-II installation…"
-                )
-
-                try self.verifyInstallation(
-                    for: game
-                )
-
-                self.report(
-                    progress,
-                    0.95,
-                    "Registering game with Reloaded-II…"
-                )
-
-                try ReloadedIIApplicationRegistry
-                    .shared
-                    .register(game)
 
                 self.report(
                     progress,
@@ -112,6 +67,214 @@ final class ReloadedIIInstaller {
             }
         }
     }
+
+
+    // ── Environment-specific installation ─────
+
+    private func installIntoLocalWine(
+        _ game: GameInstall,
+        progress: @escaping (Double, String) -> Void
+    ) throws {
+        let bottle = effectiveBottle(
+            for: game
+        )
+
+        guard let wineBinary =
+            wineEnvironment.findWineBinary(
+                for: bottle
+            )
+        else {
+            throw InstallerError.wineBinaryNotFound
+        }
+
+        report(
+            progress,
+            0.15,
+            "Downloading Reloaded-II Setup-Linux.exe…"
+        )
+
+        let setup = try downloadInstaller()
+
+        defer {
+            try? fm.removeItem(
+                at: setup
+            )
+        }
+
+        report(
+            progress,
+            0.55,
+            "Launching Reloaded-II installer…"
+        )
+
+        let result = try runInstaller(
+            setup,
+            wineBinary: wineBinary,
+            bottle: bottle
+        )
+
+        guard result.exitCode == 0
+        else {
+            throw InstallerError.installerFailed(
+                exitCode: result.exitCode,
+                output: result.output
+            )
+        }
+
+        report(
+            progress,
+            0.90,
+            "Verifying Reloaded-II installation…"
+        )
+
+        try verifyInstallation(
+            for: game
+        )
+
+        report(
+            progress,
+            0.95,
+            "Registering game with Reloaded-II…"
+        )
+
+        try ReloadedIIApplicationRegistry
+            .shared
+            .register(game)
+    }
+
+
+    private func installIntoSteamac(
+        _ game: GameInstall,
+        progress: @escaping (Double, String) -> Void
+    ) throws {
+        guard case .steamac(
+            let appId,
+            _,
+            let libraryPath,
+            _
+        ) = game.backing
+        else {
+            throw InstallerError.invalidSteamacGame
+        }
+
+        guard libraryPath.hasPrefix("/"),
+              !libraryPath.isEmpty
+        else {
+            throw InstallerError.invalidSteamacGame
+        }
+
+        guard let endpoint =
+            SteamacBridge.shared.endpoints().first
+        else {
+            throw SteamacBridgeError.noRunningInstance
+        }
+
+        report(
+            progress,
+            0.15,
+            "Downloading Reloaded-II Setup-Linux.exe…"
+        )
+
+        let setup = try downloadInstaller()
+
+        defer {
+            try? fm.removeItem(
+                at: setup
+            )
+        }
+
+        let compatdata = Self.guestJoin(
+            libraryPath,
+            "steamapps/compatdata/\(appId)"
+        )
+
+        let stagingDirectory = Self.guestJoin(
+            compatdata,
+            "bepisloader/reloadedii"
+        )
+
+        let guestSetup = Self.guestJoin(
+            stagingDirectory,
+            "Setup-Linux.exe"
+        )
+
+        report(
+            progress,
+            0.35,
+            "Staging Reloaded-II inside Steamac…"
+        )
+
+        try SteamacBridge.shared.createGuestDirectory(
+            stagingDirectory,
+            endpoint: endpoint
+        )
+
+        // Always remove the staged installer.
+        defer {
+            try? SteamacBridge.shared.removeGuestItem(
+                at: guestSetup,
+                endpoint: endpoint
+            )
+        }
+
+        try SteamacBridge.shared.uploadGuestFile(
+            from: setup,
+            to: guestSetup,
+            endpoint: endpoint
+        )
+
+        report(
+            progress,
+            0.55,
+            "Launching Reloaded-II through Proton…"
+        )
+
+        let exitCode =
+            try SteamacBridge.shared.runReloadedIISetup(
+                appId: appId,
+                setupPath: guestSetup,
+                endpoint: endpoint
+            )
+
+        guard exitCode == 0
+        else {
+            throw InstallerError.installerFailed(
+                exitCode: exitCode,
+                output: ""
+            )
+        }
+
+        report(
+            progress,
+            0.88,
+            "Verifying Reloaded-II inside Steamac…"
+        )
+
+        try verifySteamacInstallation(
+            for: game,
+            endpoint: endpoint
+        )
+
+        report(
+            progress,
+            0.94,
+            "Registering game with Reloaded-II…"
+        )
+
+        _ = try ReloadedIIApplicationRegistry
+            .shared
+            .register(
+                game,
+                endpoint: endpoint
+            )
+
+        report(
+            progress,
+            0.98,
+            "Reloaded-II game registration completed"
+        )
+    }
+
 
     // ── Download ──────────────────────────────
 
@@ -247,6 +410,49 @@ final class ReloadedIIInstaller {
         }
     }
 
+    private func verifySteamacInstallation(
+        for game: GameInstall,
+        endpoint: SteamacBridgeEndpoint
+    ) throws {
+        guard let executable =
+            try ReloadedIIPaths.resolveEnvironmentExecutable(
+                for: game,
+                endpoint: endpoint
+            )
+        else {
+            throw InstallerError.installationNotFound
+        }
+
+        guard case .guest(let executablePath) =
+            executable
+        else {
+            throw InstallerError.installationNotFound
+        }
+
+        let info =
+            try SteamacBridge.shared.guestFileInfo(
+                at: executablePath,
+                endpoint: endpoint
+            )
+
+        guard info.kind == .file
+        else {
+            throw InstallerError.installationNotFound
+        }
+    }
+
+
+    private static func guestJoin(
+        _ base: String,
+        _ component: String
+    ) -> String {
+        ReloadedIIPaths.guestJoin(
+            base,
+            component
+        )
+    }
+
+
     // ── Bottle handling ───────────────────────
 
     private func effectiveBottle(
@@ -276,6 +482,7 @@ final class ReloadedIIInstaller {
     // ── Errors ────────────────────────────────
 
     enum InstallerError: LocalizedError {
+        case invalidSteamacGame
         case wineBinaryNotFound
         case installationNotFound
         case downloadFailed(String)
@@ -287,6 +494,11 @@ final class ReloadedIIInstaller {
 
         var errorDescription: String? {
             switch self {
+
+            case .invalidSteamacGame:
+                return """
+                This Steamac game does not expose the                 AppID and Steam library information                 required to install Reloaded-II
+                """
 
             case .wineBinaryNotFound:
                 return """

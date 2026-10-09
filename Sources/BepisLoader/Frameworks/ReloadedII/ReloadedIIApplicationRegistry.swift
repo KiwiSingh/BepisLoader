@@ -22,27 +22,147 @@ final class ReloadedIIApplicationRegistry {
 
     private init() {}
 
+
     // ── Public API ────────────────────────────
 
+    /// Legacy synchronous query.
+    ///
+    /// Guest-backed environments deliberately do not perform
+    /// hidden bridge I/O here. Call the endpoint-aware overload
+    /// when working with Steamac.
     func isRegistered(
         _ game: GameInstall
     ) -> Bool {
-        registeredApplication(
-            for: game
-        ) != nil
+        switch game.environment.filesystem {
+        case .local:
+            return registeredLocalApplication(
+                for: game
+            ) != nil
+
+        case .guest:
+            return false
+        }
     }
+
+
+    func isRegistered(
+        _ game: GameInstall,
+        endpoint: SteamacBridgeEndpoint
+    ) throws -> Bool {
+        switch game.environment.filesystem {
+        case .local:
+            return registeredLocalApplication(
+                for: game
+            ) != nil
+
+        case .guest:
+            return try registeredSteamacApplication(
+                for: game,
+                endpoint: endpoint
+            ) != nil
+        }
+    }
+
 
     @discardableResult
     func register(
         _ game: GameInstall
     ) throws -> ReloadedIIApplication {
-        let paths = ReloadedIIPaths(
-            game: game
-        )
+        switch game.environment.filesystem {
+        case .local:
+            return try registerLocal(
+                game
+            )
+
+        case .guest:
+            guard let endpoint =
+                    SteamacBridge.shared
+                        .endpoints()
+                        .first
+            else {
+                throw SteamacBridgeError
+                    .noRunningInstance
+            }
+
+            return try registerSteamac(
+                game,
+                endpoint: endpoint
+            )
+        }
+    }
+
+
+    @discardableResult
+    func register(
+        _ game: GameInstall,
+        endpoint: SteamacBridgeEndpoint
+    ) throws -> ReloadedIIApplication {
+        switch game.environment.filesystem {
+        case .local:
+            return try registerLocal(
+                game
+            )
+
+        case .guest:
+            return try registerSteamac(
+                game,
+                endpoint: endpoint
+            )
+        }
+    }
+
+
+    func registeredApplication(
+        for game: GameInstall
+    ) -> ReloadedIIApplication? {
+        switch game.environment.filesystem {
+        case .local:
+            return registeredLocalApplication(
+                for: game
+            )
+
+        case .guest:
+            // Preserve the old synchronous API without hiding
+            // bridge I/O behind an optional-returning getter.
+            return nil
+        }
+    }
+
+
+    func registeredApplication(
+        for game: GameInstall,
+        endpoint: SteamacBridgeEndpoint
+    ) throws -> ReloadedIIApplication? {
+        switch game.environment.filesystem {
+        case .local:
+            return registeredLocalApplication(
+                for: game
+            )
+
+        case .guest:
+            return try registeredSteamacApplication(
+                for: game,
+                endpoint: endpoint
+            )
+        }
+    }
+
+
+    // ── Local Wine registration ───────────────
+
+    private func registerLocal(
+        _ game: GameInstall
+    ) throws -> ReloadedIIApplication {
+        let paths =
+            ReloadedIIPaths(
+                game: game
+            )
 
         guard fm.fileExists(
-            atPath: game.executablePath.path
-        ) else {
+            atPath:
+                game.executablePath.path
+        )
+        else {
             throw RegistryError
                 .gameExecutableNotFound
         }
@@ -53,7 +173,7 @@ final class ReloadedIIApplicationRegistry {
             )
 
         if let existing =
-                registeredApplication(
+                registeredLocalApplication(
                     for: game
                 )
         {
@@ -61,7 +181,8 @@ final class ReloadedIIApplicationRegistry {
                 existing.config.appLocation
             ) == normalizeWindowsPath(
                 canonicalLocation
-            ) else {
+            )
+            else {
                 throw RegistryError
                     .registrationMismatch
             }
@@ -70,13 +191,12 @@ final class ReloadedIIApplicationRegistry {
         }
 
         guard paths.executable != nil,
-              let applications = paths.applications
+              let applications =
+                paths.applications
         else {
-            throw RegistryError.frameworkNotInstalled
+            throw RegistryError
+                .frameworkNotInstalled
         }
-
-        let windowsExecutable =
-            canonicalLocation
 
         let windowsWorkingDirectory =
             try paths.requiredWindowsPath(
@@ -88,18 +208,22 @@ final class ReloadedIIApplicationRegistry {
             withIntermediateDirectories: true
         )
 
-        let baseId = game.executablePath
-            .lastPathComponent
-            .lowercased()
+        let baseId =
+            game.executablePath
+                .lastPathComponent
+                .lowercased()
 
-        guard !baseId.isEmpty else {
-            throw RegistryError.invalidExecutable
+        guard !baseId.isEmpty
+        else {
+            throw RegistryError
+                .invalidExecutable
         }
 
-        let appId = uniqueAppId(
-            base: baseId,
-            applications: applications
-        )
+        let appId =
+            uniqueLocalAppId(
+                base: baseId,
+                applications: applications
+            )
 
         guard let directory =
                 paths.applicationDirectory(
@@ -110,41 +234,29 @@ final class ReloadedIIApplicationRegistry {
                     appId: appId
                 )
         else {
-            throw RegistryError.frameworkNotInstalled
+            throw RegistryError
+                .frameworkNotInstalled
         }
 
-        let config = ReloadedIIApplicationConfig(
-            appId: appId,
-            appName: game.name,
-            appLocation: windowsExecutable,
-            appArguments: "",
-            appIcon: "Icon.png",
-            autoInject: false,
-            enabledMods: [],
-            workingDirectory:
-                windowsWorkingDirectory,
-            pluginData: [:],
-            sortedMods: [],
-            preserveDisabledModOrder: true,
-            dontInject: false,
-            isMsStore: false
-        )
+        let config =
+            makeConfig(
+                appId: appId,
+                game: game,
+                windowsExecutable:
+                    canonicalLocation,
+                windowsWorkingDirectory:
+                    windowsWorkingDirectory
+            )
 
         try fm.createDirectory(
             at: directory,
             withIntermediateDirectories: true
         )
 
-        let encoder = JSONEncoder()
-
-        encoder.outputFormatting = [
-            .prettyPrinted,
-            .sortedKeys
-        ]
-
-        let data = try encoder.encode(
-            config
-        )
+        let data =
+            try encodedConfig(
+                config
+            )
 
         try data.write(
             to: configURL,
@@ -153,16 +265,20 @@ final class ReloadedIIApplicationRegistry {
 
         return ReloadedIIApplication(
             config: config,
-            configURL: configURL
+            configPath: .host(
+                configURL
+            )
         )
     }
 
-    func registeredApplication(
+
+    private func registeredLocalApplication(
         for game: GameInstall
     ) -> ReloadedIIApplication? {
-        let paths = ReloadedIIPaths(
-            game: game
-        )
+        let paths =
+            ReloadedIIPaths(
+                game: game
+            )
 
         guard let applications =
                 paths.applications,
@@ -185,13 +301,14 @@ final class ReloadedIIApplicationRegistry {
         }
 
         for directory in directories {
-            let configURL = directory
-                .appendingPathComponent(
-                    "AppConfig.json"
-                )
+            let configURL =
+                directory
+                    .appendingPathComponent(
+                        "AppConfig.json"
+                    )
 
             guard let application =
-                    readApplication(
+                    readLocalApplication(
                         at: configURL
                     )
             else {
@@ -210,72 +327,485 @@ final class ReloadedIIApplicationRegistry {
         return nil
     }
 
+
+    // ── Steamac registration ──────────────────
+
+    private func registerSteamac(
+        _ game: GameInstall,
+        endpoint: SteamacBridgeEndpoint
+    ) throws -> ReloadedIIApplication {
+        guard case .steamac =
+                game.backing,
+              case .guest(
+                let executablePath
+              ) = game.environmentExecutablePath
+        else {
+            throw RegistryError
+                .invalidEnvironment
+        }
+
+        let executableInfo =
+            try SteamacBridge.shared
+                .guestFileInfo(
+                    at: executablePath,
+                    endpoint: endpoint
+                )
+
+        guard executableInfo.kind
+                == .file
+        else {
+            throw RegistryError
+                .gameExecutableNotFound
+        }
+
+        guard let applicationsPath =
+                try ReloadedIIPaths
+                    .resolveEnvironmentApplications(
+                        for: game,
+                        endpoint: endpoint
+                    ),
+              case .guest(
+                let applications
+              ) = applicationsPath
+        else {
+            throw RegistryError
+                .frameworkNotInstalled
+        }
+
+        let windowsExecutable =
+            try steamacWindowsPath(
+                executablePath
+            )
+
+        let workingDirectory =
+            ReloadedIIPaths
+                .guestDeletingLastPathComponent(
+                    executablePath
+                )
+
+        let windowsWorkingDirectory =
+            try steamacWindowsPath(
+                workingDirectory
+            )
+
+        if let existing =
+                try registeredSteamacApplication(
+                    for: game,
+                    endpoint: endpoint
+                )
+        {
+            guard normalizeWindowsPath(
+                existing.config.appLocation
+            ) == normalizeWindowsPath(
+                windowsExecutable
+            )
+            else {
+                throw RegistryError
+                    .registrationMismatch
+            }
+
+            return existing
+        }
+
+        let basename =
+            (executablePath as NSString)
+                .lastPathComponent
+                .lowercased()
+
+        guard !basename.isEmpty
+        else {
+            throw RegistryError
+                .invalidExecutable
+        }
+
+        // Each Steam AppID has its own Proton prefix. A stable
+        // basename-derived ID therefore avoids requiring broad
+        // guest directory enumeration merely to generate "_dup".
+        let appId =
+            sanitizedGuestAppId(
+                basename
+            )
+
+        guard !appId.isEmpty
+        else {
+            throw RegistryError
+                .invalidExecutable
+        }
+
+        let directory =
+            ReloadedIIPaths.guestJoin(
+                applications,
+                appId
+            )
+
+        let configPath =
+            ReloadedIIPaths.guestJoin(
+                directory,
+                "AppConfig.json"
+            )
+
+        let config =
+            makeConfig(
+                appId: appId,
+                game: game,
+                windowsExecutable:
+                    windowsExecutable,
+                windowsWorkingDirectory:
+                    windowsWorkingDirectory
+            )
+
+        try SteamacBridge.shared
+            .createGuestDirectory(
+                applications,
+                endpoint: endpoint
+            )
+
+        try SteamacBridge.shared
+            .createGuestDirectory(
+                directory,
+                endpoint: endpoint
+            )
+
+        try SteamacBridge.shared
+            .writeGuestFile(
+                try encodedConfig(
+                    config
+                ),
+                to: configPath,
+                endpoint: endpoint
+            )
+
+        return ReloadedIIApplication(
+            config: config,
+            configPath: .guest(
+                configPath
+            )
+        )
+    }
+
+
+    private func registeredSteamacApplication(
+        for game: GameInstall,
+        endpoint: SteamacBridgeEndpoint
+    ) throws -> ReloadedIIApplication? {
+        guard case .steamac =
+                game.backing,
+              case .guest(
+                let executablePath
+              ) = game.environmentExecutablePath
+        else {
+            throw RegistryError
+                .invalidEnvironment
+        }
+
+        guard let applicationsPath =
+                try ReloadedIIPaths
+                    .resolveEnvironmentApplications(
+                        for: game,
+                        endpoint: endpoint
+                    ),
+              case .guest(
+                let applications
+              ) = applicationsPath
+        else {
+            return nil
+        }
+
+        let basename =
+            (executablePath as NSString)
+                .lastPathComponent
+                .lowercased()
+
+        let appId =
+            sanitizedGuestAppId(
+                basename
+            )
+
+        guard !appId.isEmpty
+        else {
+            return nil
+        }
+
+        let configPath =
+            ReloadedIIPaths.guestJoin(
+                ReloadedIIPaths.guestJoin(
+                    applications,
+                    appId
+                ),
+                "AppConfig.json"
+            )
+
+        let info =
+            try SteamacBridge.shared
+                .guestFileInfo(
+                    at: configPath,
+                    endpoint: endpoint
+                )
+
+        if info.kind == .missing {
+            return nil
+        }
+
+        guard info.kind == .file
+        else {
+            throw RegistryError
+                .invalidRegistration
+        }
+
+        let data =
+            try SteamacBridge.shared
+                .readGuestFile(
+                    at: configPath,
+                    endpoint: endpoint
+                )
+
+        let config: ReloadedIIApplicationConfig
+
+        do {
+            config =
+                try JSONDecoder()
+                    .decode(
+                        ReloadedIIApplicationConfig.self,
+                        from: data
+                    )
+        } catch {
+            throw RegistryError
+                .invalidRegistration
+        }
+
+        let expectedLocation =
+            try steamacWindowsPath(
+                executablePath
+            )
+
+        guard normalizeWindowsPath(
+            config.appLocation
+        ) == normalizeWindowsPath(
+            expectedLocation
+        )
+        else {
+            throw RegistryError
+                .registrationMismatch
+        }
+
+        return ReloadedIIApplication(
+            config: config,
+            configPath: .guest(
+                configPath
+            )
+        )
+    }
+
+
     // ── Config mutation ───────────────────────
 
     func update(
         _ application: ReloadedIIApplication
     ) throws {
-        let encoder = JSONEncoder()
+        guard case .host(let url) =
+                application.configPath
+        else {
+            throw RegistryError
+                .guestEndpointRequired
+        }
+
+        try encodedConfig(
+            application.config
+        )
+        .write(
+            to: url,
+            options: .atomic
+        )
+    }
+
+
+    func update(
+        _ application: ReloadedIIApplication,
+        endpoint: SteamacBridgeEndpoint
+    ) throws {
+        let data =
+            try encodedConfig(
+                application.config
+            )
+
+        switch application.configPath {
+        case .host(let url):
+            try data.write(
+                to: url,
+                options: .atomic
+            )
+
+        case .guest(let path):
+            try SteamacBridge.shared
+                .writeGuestFile(
+                    data,
+                    to: path,
+                    endpoint: endpoint
+                )
+        }
+    }
+
+
+    // ── Shared helpers ────────────────────────
+
+    private func makeConfig(
+        appId: String,
+        game: GameInstall,
+        windowsExecutable: String,
+        windowsWorkingDirectory: String
+    ) -> ReloadedIIApplicationConfig {
+        ReloadedIIApplicationConfig(
+            appId: appId,
+            appName: game.name,
+            appLocation: windowsExecutable,
+            appArguments: "",
+            appIcon: "Icon.png",
+            autoInject: false,
+            enabledMods: [],
+            workingDirectory:
+                windowsWorkingDirectory,
+            pluginData: [:],
+            sortedMods: [],
+            preserveDisabledModOrder: true,
+            dontInject: false,
+            isMsStore: false
+        )
+    }
+
+
+    private func encodedConfig(
+        _ config: ReloadedIIApplicationConfig
+    ) throws -> Data {
+        let encoder =
+            JSONEncoder()
 
         encoder.outputFormatting = [
             .prettyPrinted,
             .sortedKeys
         ]
 
-        let data = try encoder.encode(
-            application.config
-        )
-
-        try data.write(
-            to: application.configURL,
-            options: .atomic
+        return try encoder.encode(
+            config
         )
     }
 
-    // ── Discovery ─────────────────────────────
 
-    private func readApplication(
+    private func readLocalApplication(
         at url: URL
     ) -> ReloadedIIApplication? {
-        guard let data = try? Data(
-            contentsOf: url
-        ) else {
+        guard let data =
+                try? Data(
+                    contentsOf: url
+                )
+        else {
             return nil
         }
 
-        let decoder = JSONDecoder()
-
-        guard let config = try? decoder.decode(
-            ReloadedIIApplicationConfig.self,
-            from: data
-        ) else {
+        guard let config =
+                try? JSONDecoder()
+                    .decode(
+                        ReloadedIIApplicationConfig.self,
+                        from: data
+                    )
+        else {
             return nil
         }
 
         return ReloadedIIApplication(
             config: config,
-            configURL: url
+            configPath: .host(
+                url
+            )
         )
     }
 
-    private func uniqueAppId(
+
+    private func uniqueLocalAppId(
         base: String,
         applications: URL
     ) -> String {
-        var candidate = base
+        var candidate =
+            base
 
         while fm.fileExists(
-            atPath: applications
-                .appendingPathComponent(
-                    candidate
-                )
-                .path
+            atPath:
+                applications
+                    .appendingPathComponent(
+                        candidate
+                    )
+                    .path
         ) {
-            candidate += "_dup"
+            candidate +=
+                "_dup"
         }
 
         return candidate
     }
+
+
+    /// Proton exposes the Linux filesystem through Wine's Z: drive.
+    ///
+    /// Steam game installations live outside drive_c, under the
+    /// Steam library's steamapps/common tree, so mapping them to
+    /// C: would be incorrect.
+    private func steamacWindowsPath(
+        _ guestPath: String
+    ) throws -> String {
+        guard guestPath.hasPrefix("/")
+        else {
+            throw RegistryError
+                .executableOutsidePrefix
+        }
+
+        let relative =
+            guestPath
+                .dropFirst()
+                .replacingOccurrences(
+                    of: "/",
+                    with: "\\"
+                )
+
+        return "Z:\\"
+            + relative
+    }
+
+
+    private func sanitizedGuestAppId(
+        _ value: String
+    ) -> String {
+        let allowed =
+            CharacterSet
+                .alphanumerics
+                .union(
+                    CharacterSet(
+                        charactersIn: "._-"
+                    )
+                )
+
+        var result =
+            ""
+
+        for scalar in value.unicodeScalars {
+            if allowed.contains(
+                scalar
+            ) {
+                result.append(
+                    Character(
+                        String(
+                            scalar
+                        )
+                    )
+                )
+            } else {
+                result.append(
+                    "_"
+                )
+            }
+        }
+
+        return result
+    }
+
 
     private func normalizeWindowsPath(
         _ path: String
@@ -293,6 +823,7 @@ final class ReloadedIIApplicationRegistry {
             .lowercased()
     }
 
+
     // ── Errors ────────────────────────────────
 
     enum RegistryError: LocalizedError {
@@ -301,6 +832,9 @@ final class ReloadedIIApplicationRegistry {
         case gameExecutableNotFound
         case registrationMismatch
         case invalidExecutable
+        case invalidEnvironment
+        case invalidRegistration
+        case guestEndpointRequired
 
         var errorDescription: String? {
             switch self {
@@ -308,23 +842,26 @@ final class ReloadedIIApplicationRegistry {
             case .frameworkNotInstalled:
                 return """
                 Reloaded-II is not installed \
-                in this game's Wine prefix
+                in this game's compatibility environment
                 """
 
             case .executableOutsidePrefix:
                 return """
                 The game executable could not \
-                be mapped into the Wine C: drive
+                be mapped to a Windows path
                 """
 
             case .gameExecutableNotFound:
                 return """
-                The game's executable could not                 be found on disk
+                The game's executable could not \
+                be found
                 """
 
             case .registrationMismatch:
                 return """
-                Reloaded-II's registered AppLocation                 does not match this game's canonical                 executable path
+                Reloaded-II's registered AppLocation \
+                does not match this game's canonical \
+                executable path
                 """
 
             case .invalidExecutable:
@@ -332,10 +869,29 @@ final class ReloadedIIApplicationRegistry {
                 The game executable does not \
                 have a valid filename
                 """
+
+            case .invalidEnvironment:
+                return """
+                Reloaded-II registration received an \
+                incompatible game environment
+                """
+
+            case .invalidRegistration:
+                return """
+                Reloaded-II's AppConfig.json is not \
+                a valid application registration
+                """
+
+            case .guestEndpointRequired:
+                return """
+                Updating a Steamac Reloaded-II \
+                registration requires its active bridge
+                """
             }
         }
     }
 }
+
 
 // ─────────────────────────────────────────────
 //  Application wrapper
@@ -346,7 +902,19 @@ struct ReloadedIIApplication: Hashable {
     var config:
         ReloadedIIApplicationConfig
 
-    let configURL: URL
+    let configPath:
+        GameEnvironmentPath
+
+    /// Host-only compatibility accessor.
+    var configURL: URL? {
+        guard case .host(let url) =
+                configPath
+        else {
+            return nil
+        }
+
+        return url
+    }
 }
 
 // ─────────────────────────────────────────────

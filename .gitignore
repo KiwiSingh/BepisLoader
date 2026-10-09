@@ -1,2 +1,18 @@
 # Swift Package Manager build artifacts
 .build/
+
+# macOS
+.DS_Store
+.AppleDouble
+._*
+
+# Local builds and generated output
+work/
+DerivedData/
+*.xcresult
+
+# Temporary patch backups
+*.bak
+*.bak.*
+*.pre-*.bak
+.41F-*-backup-*/

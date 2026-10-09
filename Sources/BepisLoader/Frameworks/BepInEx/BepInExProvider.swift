@@ -27,9 +27,29 @@ final class BepInExProvider: ModFrameworkProvider {
     // ── Detection ─────────────────────────────
 
     func detect(in game: GameInstall) -> FrameworkInstallation {
-        let paths = BepInExPaths(game: game)
+        switch game.backing {
+        case .localWine:
+            return detectLocal(
+                in: game
+            )
 
-        guard FileManager.default.fileExists(atPath: paths.root.path) else {
+        case .steamac:
+            return detectSteamac(
+                in: game
+            )
+        }
+    }
+
+    private func detectLocal(
+        in game: GameInstall
+    ) -> FrameworkInstallation {
+        let paths = BepInExPaths(
+            game: game
+        )
+
+        guard FileManager.default.fileExists(
+            atPath: paths.root.path
+        ) else {
             return FrameworkInstallation(
                 framework: framework,
                 status: .notInstalled
@@ -63,11 +83,15 @@ final class BepInExProvider: ModFrameworkProvider {
         ]
 
         if coreCandidates.contains(where: {
-            FileManager.default.fileExists(atPath: $0.path)
+            FileManager.default.fileExists(
+                atPath: $0.path
+            )
         }) {
             return FrameworkInstallation(
                 framework: framework,
-                status: .installed(version: "unknown")
+                status: .installed(
+                    version: "unknown"
+                )
             )
         }
 
@@ -78,28 +102,139 @@ final class BepInExProvider: ModFrameworkProvider {
             let pattern =
                 #"BepInEx\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)"#
 
-            if let regex = try? NSRegularExpression(pattern: pattern),
+            if let regex = try? NSRegularExpression(
+                pattern: pattern
+            ),
                let match = regex.firstMatch(
                     in: logText,
-                    range: NSRange(logText.startIndex..., in: logText)
+                    range: NSRange(
+                        logText.startIndex...,
+                        in: logText
+                    )
                ),
-               let range = Range(match.range(at: 1), in: logText) {
-
+               let range = Range(
+                    match.range(at: 1),
+                    in: logText
+               ) {
                 return FrameworkInstallation(
                     framework: framework,
                     status: .installed(
-                        version: String(logText[range])
+                        version: String(
+                            logText[range]
+                        )
                     )
                 )
             }
         }
 
-        // A BepInEx directory exists even if its exact version
-        // cannot be determined.
         return FrameworkInstallation(
             framework: framework,
-            status: .installed(version: "unknown")
+            status: .installed(
+                version: "unknown"
+            )
         )
+    }
+
+    private func detectSteamac(
+        in game: GameInstall
+    ) -> FrameworkInstallation {
+        guard let endpoint =
+                SteamacBridge.shared
+                    .endpoints()
+                    .first
+        else {
+            return FrameworkInstallation(
+                framework: framework,
+                status: .incompatible(
+                    reason:
+                        "Steamac is not running."
+                )
+            )
+        }
+
+        let paths =
+            BepInExPaths(
+                game: game
+            )
+
+        guard case .guest(let root) =
+                paths.environmentRoot
+        else {
+            return FrameworkInstallation(
+                framework: framework,
+                status: .incompatible(
+                    reason:
+                        "Steamac game has no guest BepInEx path."
+                )
+            )
+        }
+
+        do {
+            let rootInfo =
+                try SteamacBridge.shared
+                    .guestFileInfo(
+                        at: root,
+                        endpoint: endpoint
+                    )
+
+            guard rootInfo.exists
+            else {
+                return FrameworkInstallation(
+                    framework: framework,
+                    status: .notInstalled
+                )
+            }
+
+            let candidates = [
+                BepInExPaths.guestJoin(
+                    root,
+                    "core/BepInEx.Unity.IL2CPP.dll"
+                ),
+                BepInExPaths.guestJoin(
+                    root,
+                    "core/BepInEx.Core.dll"
+                ),
+                BepInExPaths.guestJoin(
+                    root,
+                    "core/BepInEx.dll"
+                )
+            ]
+
+            for candidate in candidates {
+                let info =
+                    try SteamacBridge.shared
+                        .guestFileInfo(
+                            at: candidate,
+                            endpoint: endpoint
+                        )
+
+                if info.exists {
+                    return FrameworkInstallation(
+                        framework: framework,
+                        status: .installed(
+                            version: "unknown"
+                        )
+                    )
+                }
+            }
+
+            // Directory existence is enough to report an installation,
+            // matching the existing local fallback semantics.
+            return FrameworkInstallation(
+                framework: framework,
+                status: .installed(
+                    version: "unknown"
+                )
+            )
+        } catch {
+            return FrameworkInstallation(
+                framework: framework,
+                status: .incompatible(
+                    reason:
+                        error.localizedDescription
+                )
+            )
+        }
     }
 
     // ── Installation ──────────────────────────

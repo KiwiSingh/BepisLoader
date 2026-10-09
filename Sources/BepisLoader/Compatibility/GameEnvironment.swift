@@ -172,7 +172,13 @@ enum GameEnvironmentCapability:
     case guestFileAccess
     case guestCommandExecution
     case steamLibraryDiscovery
+    case protonRuntimeResolution
     case protonPrefixResolution
+    case protonEnvironmentInspection
+    case protonRuntimeAttestationV1
+    case bepInExInstallationInventoryV1
+    case reloadedIIModInventoryV1
+    case reloadedIIModMetadataV1
 }
 
 

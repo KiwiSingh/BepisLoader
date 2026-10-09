@@ -282,11 +282,51 @@ struct ReloadedIIDiscoveredMod:
     let config:
         ReloadedIIModConfig
 
-    let configURL: URL
+    /// Authoritative location of ModConfig.json.
+    let configPath:
+        GameEnvironmentPath
 
+    /// Stable URL representation of ModConfig.json.
+    ///
+    /// Local mods use their real file URL. Guest mods use a
+    /// non-file steamac-guest URL strictly as an identity value.
+    /// Guest filesystem operations must use configPath instead.
+    var configURL: URL {
+        switch configPath {
+
+        case .host(let url):
+            return url
+
+        case .guest(let path):
+            var components =
+                URLComponents()
+
+            components.scheme =
+                "steamac-guest"
+
+            components.path =
+                path
+
+            return components.url
+                ?? URL(
+                    string:
+                        "steamac-guest:///"
+                )!
+        }
+    }
+
+    /// Directory identity corresponding to configURL.
+    ///
+    /// This remains concrete so the existing host-only package
+    /// inspection/install pipeline keeps its pre-41F API.
     var directory: URL {
         configURL
             .deletingLastPathComponent()
+    }
+
+    /// Stable directory identity used by InstalledMod.
+    var identityURL: URL {
+        directory
     }
 }
 
@@ -395,9 +435,57 @@ enum ReloadedIIModDiscovery {
 
         return ReloadedIIDiscoveredMod(
             config: config,
-            configURL: configURL
+            configPath: .host(
+                configURL
+            )
         )
     }
+
+
+    /// Decodes metadata read explicitly from a Steamac guest.
+    ///
+    /// Directory discovery itself remains guest-agent-owned;
+    /// this helper only validates the already-read JSON payload.
+    static func readGuest(
+        data: Data,
+        configPath: String
+    ) -> ReloadedIIDiscoveredMod? {
+        guard configPath.hasPrefix("/"),
+              (configPath as NSString)
+                .lastPathComponent
+                .caseInsensitiveCompare(
+                    "ModConfig.json"
+                ) == .orderedSame
+        else {
+            return nil
+        }
+
+        guard let config =
+                try? JSONDecoder().decode(
+                    ReloadedIIModConfig.self,
+                    from: data
+                )
+        else {
+            return nil
+        }
+
+        guard !config.modId
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .isEmpty
+        else {
+            return nil
+        }
+
+        return ReloadedIIDiscoveredMod(
+            config: config,
+            configPath: .guest(
+                configPath
+            )
+        )
+    }
+
 
 
     // ── Strict package inspection ─────────────
@@ -503,7 +591,9 @@ enum ReloadedIIModDiscovery {
             result.append(
                 ReloadedIIDiscoveredMod(
                     config: decoded,
-                    configURL: url
+                    configPath: .host(
+                        url
+                    )
                 )
             )
         }

@@ -1,0 +1,37 @@
+{
+  "patch": "41F-13",
+  "generated_at_utc": "2026-10-08T09:49:43.864406+00:00",
+  "checks": {
+    "source_present": {
+      "passed": true
+    },
+    "regression_suite_present": {
+      "passed": true
+    },
+    "static_regressions": {
+      "passed": true,
+      "returncode": 0,
+      "output_tail": "test_actionable_failure_reporting (__main__.SteamacSourceRegressions.test_actionable_failure_reporting) ... ok\ntest_cycle_check_precedes_staged_shortcut (__main__.SteamacSourceRegressions.test_cycle_check_precedes_staged_shortcut) ... ok\ntest_filesystem_preflight (__main__.SteamacSourceRegressions.test_filesystem_preflight) ... ok\ntest_graph_installer_still_present (__main__.SteamacSourceRegressions.test_graph_installer_still_present) ... ok\ntest_local_installer_not_replaced (__main__.SteamacSourceRegressions.test_local_installer_not_replaced) ... ok\ntest_read_only_guest_diagnostics (__main__.SteamacSourceRegressions.test_read_only_guest_diagnostics) ... ok\ntest_registry_restore_guarded_by_commit_attempt (__main__.SteamacSourceRegressions.test_registry_restore_guarded_by_commit_attempt) ... ok\ntest_retry_safe_rollback_state (__main__.SteamacSourceRegressions.test_retry_safe_rollback_state) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 0.001s\n\nOK\n"
+    },
+    "git_diff_check": {
+      "passed": true,
+      "returncode": 0,
+      "output_tail": ""
+    },
+    "swift_build": {
+      "passed": true,
+      "returncode": 0,
+      "output_tail": "Building for debugging...\n[1 / 3]\nBuild complete! (0.36 sec)\n"
+    }
+  },
+  "automated_checks_pass": true,
+  "manual_release_gates": {
+    "guest_transaction_fault_injection": "NOT_VERIFIED",
+    "bidirectional_guest_host_sync": "NOT_VERIFIED",
+    "proton_reloaded_ii_execution": "NOT_VERIFIED",
+    "real_mod_compatibility_matrix": "NOT_VERIFIED",
+    "release_signing_and_packaging": "NOT_VERIFIED"
+  },
+  "production_ready": false,
+  "reason": "Runtime and release validation gates require explicit evidence."
+}

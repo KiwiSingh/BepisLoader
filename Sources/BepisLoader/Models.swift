@@ -73,6 +73,58 @@ struct Bottle: Identifiable, Hashable, Codable {
     }
 }
 
+enum GameInstallBacking: Hashable, Codable {
+    case localWine(Bottle)
+
+    case steamac(
+        appId: UInt32,
+        installPath: String,
+        libraryPath: String,
+        protonPrefix: String?
+    )
+
+    var bottle: Bottle? {
+        guard case .localWine(let bottle) = self else {
+            return nil
+        }
+
+        return bottle
+    }
+
+    var steamAppId: UInt32? {
+        guard case .steamac(let appId, _, _, _) = self else {
+            return nil
+        }
+
+        return appId
+    }
+
+    var guestInstallPath: String? {
+        guard case .steamac(_, let installPath, _, _) = self else {
+            return nil
+        }
+
+        return installPath
+    }
+
+    var guestLibraryPath: String? {
+        guard case .steamac(_, _, let libraryPath, _) = self else {
+            return nil
+        }
+
+        return libraryPath
+    }
+
+    var guestProtonPrefix: String? {
+        guard case .steamac(_, _, _, let protonPrefix) = self else {
+            return nil
+        }
+
+        return protonPrefix
+    }
+}
+
+
 /// A Unity game that lives inside a bottle
 struct GameInstall: Identifiable, Hashable, Codable {
     enum UnityType: String, Codable {
@@ -83,8 +135,22 @@ struct GameInstall: Identifiable, Hashable, Codable {
     
     let id:             UUID
     let name:           String
+    /// Legacy host-side executable URL.
+    ///
+    /// For local Wine games this is the real executable.
+    /// For guest-backed games this remains a compatibility value only;
+    /// environmentExecutablePath is authoritative.
     let executablePath: URL
+
     let bottle:         Bottle
+
+
+    /// Authoritative environment-specific backing.
+    let backing: GameInstallBacking
+    /// Authoritative executable location in the game's runtime
+    /// environment.
+    let environmentExecutablePath:
+        GameEnvironmentPath
 
     /// Runtime/filesystem environment containing
     /// this game.
@@ -100,7 +166,8 @@ struct GameInstall: Identifiable, Hashable, Codable {
         name: String,
         executablePath: URL,
         bottle: Bottle,
-        environment: GameEnvironment? = nil
+        environment: GameEnvironment? = nil,
+        environmentExecutablePath: GameEnvironmentPath? = nil
     ) {
         self.id =
             UUID()
@@ -114,10 +181,17 @@ struct GameInstall: Identifiable, Hashable, Codable {
         self.bottle =
             bottle
 
+        self.backing = .localWine(bottle)
         self.environment =
             environment
             ?? .localWine(
                 bottle: bottle
+            )
+
+        self.environmentExecutablePath =
+            environmentExecutablePath
+            ?? .host(
+                executablePath
             )
     }
 
@@ -126,6 +200,48 @@ struct GameInstall: Identifiable, Hashable, Codable {
     /// This remains host-only for compatibility with
     /// the existing Wine providers. Steamac games will
     /// use environment paths/bridge access instead.
+    init(
+        steamacGame: SteamacGame,
+        executablePath: String,
+        protonPrefix: String?
+    ) {
+        self.id = UUID()
+        self.name = steamacGame.name
+
+        // Legacy compatibility sentinels only.
+        //
+        // These are deliberately NOT guest paths. Remote consumers
+        // must use environmentExecutablePath/backing instead.
+        self.executablePath = URL(
+            fileURLWithPath: "/dev/null"
+        )
+
+        self.bottle = Bottle(
+            name: "Steamac",
+            path: URL(
+                fileURLWithPath: "/dev/null"
+            ),
+            layer: .other
+        )
+
+        self.backing = .steamac(
+            appId: steamacGame.appId,
+            installPath: steamacGame.installPath,
+            libraryPath: steamacGame.libraryPath,
+            protonPrefix: protonPrefix
+        )
+
+        self.environment = steamacGame.environment
+
+        self.environmentExecutablePath = .guest(
+            executablePath
+        )
+
+        self.overrideLayer = nil
+        self.unityType = .unknown
+    }
+
+
     var gameDirectory: URL {
         executablePath
             .deletingLastPathComponent()
