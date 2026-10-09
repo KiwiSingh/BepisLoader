@@ -15,6 +15,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     private let reportTextView = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 330))
     private let refreshButton = NSButton(title: "Refresh connection & library", target: nil, action: nil)
     private let launchButton = NSButton(title: "Launch via Steamac", target: nil, action: nil)
+    private let installFrameworkButton = NSButton(title: "Install BepInEx…", target: nil, action: nil)
     private let installPluginButton = NSButton(title: "Install Plugin…", target: nil, action: nil)
     private var pluginOperationBusy = false
     private var games: [SteamacGame] = []
@@ -48,6 +49,8 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         refreshButton.action = #selector(refresh)
         launchButton.target = self
         launchButton.action = #selector(launchViaSteamac)
+        installFrameworkButton.target = self
+        installFrameworkButton.action = #selector(installFramework)
         installPluginButton.target = self
         installPluginButton.action = #selector(installPlugin)
         updatePluginButtons()
@@ -68,7 +71,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         reportScroll.borderType = .bezelBorder
         reportScroll.documentView = reportTextView
         reportScroll.heightAnchor.constraint(equalToConstant: 330).isActive = true
-        let stack = NSStackView(views: [title, status, details, refreshButton, scroll, reportScroll, installPluginButton, launchButton])
+        let stack = NSStackView(views: [title, status, details, refreshButton, scroll, reportScroll, installFrameworkButton, installPluginButton, launchButton])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
@@ -541,8 +544,75 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
 
     private func updatePluginButtons() {
         let enabled = selectedPluginGame != nil && activeEndpoint != nil && !pluginOperationBusy
+        installFrameworkButton.isEnabled = enabled
         installPluginButton.isEnabled = enabled
         launchButton.isEnabled = enabled
+    }
+
+    // 41F-21D.40: explicit, per-game framework installation. The existing
+    // installer owns download, staging and guest deployment; never run this on
+    // the main thread or claim success without a fresh guest inventory.
+    @objc private func installFramework() {
+        guard let game = selectedPluginGame, let endpoint = activeEndpoint,
+              !pluginOperationBusy else { return }
+        let confirm = NSAlert()
+        confirm.messageText = "Install BepInEx for \(game.name)?"
+        confirm.informativeText = "AppID \(game.appId). Choose the Unity runtime explicitly; the guest PE/Unity architecture cannot yet be determined automatically. Existing files may be modified. Back up mods before proceeding."
+        confirm.addButton(withTitle: "Unity Mono (x64)")
+        confirm.addButton(withTitle: "Unity IL2CPP (x64)")
+        confirm.addButton(withTitle: "Cancel")
+        let choice = confirm.runModal()
+        guard choice == .alertFirstButtonReturn || choice == .alertSecondButtonReturn else { return }
+        let il2cpp = choice == .alertSecondButtonReturn
+        let release = BepInExInstaller.latestStable(is64Bit: true, isIL2CPP: il2cpp)
+        pluginOperationBusy = true
+        updatePluginButtons()
+        showReport("Preparing BepInEx \(release.version) for AppID \(game.appId)…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            do {
+                let inventory = try self.bridge.bepInExInventory(appId: game.appId, endpoint: endpoint)
+                guard inventory.installation == .absent else {
+                    throw NSError(domain: "BepisFramework", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Refusing installation: guest inventory is \(inventory.installation.rawValue). Repair/overwrite requires a separately reviewed transaction."])
+                }
+                guard let install = try self.bridge.gameInstall(for: game, endpoint: endpoint) else {
+                    throw NSError(domain: "BepisFramework", code: 2,
+                        userInfo: [NSLocalizedDescriptionKey: "Game executable could not be resolved in the guest."])
+                }
+                BepInExInstaller.shared.install(into: install, asset: release,
+                    progress: { [weak self] _, message in
+                        DispatchQueue.main.async { self?.showReport(message) }
+                    }, completion: { [weak self] result in
+                        guard let self else { return }
+                        let report: String
+                        switch result {
+                        case .failure(let error):
+                            report = "BepInEx installation failed: \(error.localizedDescription)"
+                        case .success:
+                            do {
+                                let verified = try self.bridge.bepInExInventory(appId: game.appId, endpoint: endpoint)
+                                report = verified.installation == .installed
+                                    ? "BepInEx files installed and guest inventory verified for AppID \(game.appId). Runtime loading is not yet attested."
+                                    : "Installation returned success but inventory is \(verified.installation.rawValue). Inspect guest state before retrying."
+                            } catch {
+                                report = "Installation returned success, but inventory verification failed: \(error.localizedDescription)"
+                            }
+                        }
+                        DispatchQueue.main.async {
+                            self.pluginOperationBusy = false
+                            self.updatePluginButtons()
+                            self.showReport(report)
+                        }
+                    })
+            } catch {
+                DispatchQueue.main.async {
+                    self.pluginOperationBusy = false
+                    self.updatePluginButtons()
+                    self.showReport(error.localizedDescription)
+                }
+            }
+        }
     }
 
     @objc private func installPlugin() {
