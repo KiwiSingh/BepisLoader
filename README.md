@@ -2,7 +2,7 @@
 
 ![BepisLoader Logo](BepisLogo.png)
 
-**BepisLoader** is a native macOS power-tool for installing and managing **BepInEx** mods in Windows Unity games. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
+**BepisLoader 2.0** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
 
 ---
 
@@ -17,8 +17,19 @@
 | **Direct Env Injection** | For GameHub, BepisLoader injects `DOORSTOP_ENABLE`, `DOORSTOP_INVOKE_DLL_PATH`, and mandatory Mono runtime paths directly into the `environment` dictionary in GameHub's settings JSON for maximum reliability. |
 | **Auto-Quarantine Removal** | Automatically runs `xattr -rs com.apple.quarantine` on all BepInEx files to prevent macOS "Developer cannot be verified" errors. |
 | **Mod Manager** | Install `.dll` plugins by file picker; handles macOS security scoping for external drives; reads `[BepInPlugin]` metadata for display. |
+| **Steamac Integration** | Discover Steamac game environments and deploy BepInEx components through the guest bridge. |
+| **Multi-Framework Architecture** | Framework-neutral game and mod management with Reloaded-II installation and dependency-management infrastructure. |
 
 ---
+
+## 🐸 What's new in v2.0.0
+
+- **Steamac / BepisBridge integration:** Discover Steamac games and manage BepInEx deployments inside a running SteamOS VM.
+- **Framework-agnostic foundations:** Game environments and mod-management interfaces are no longer coupled exclusively to BepInEx.
+- **Reloaded-II infrastructure:** Framework discovery, installation, mod metadata, dependency planning, load-order controls, and transactional operations have been implemented; end-to-end workflows remain under validation.
+- **Verified integration:** BepInEx 6 Unity IL2CPP and a mod were successfully tested with *Digimon World: Next Order* (Steam AppID `1530160`) inside Steamac.
+
+**Scope note:** The Steamac/BepInEx path is tested; Reloaded-II end-to-end installation and texture modding are not claimed as validated in this release.
 
 ## 🛠 Installation & Usage
 
@@ -36,7 +47,7 @@
 
 ```bash
 # Clone the project
-git clone https://github.com/yourusername/BepisLoader
+git clone https://github.com/KiwiSingh/BepisLoader
 cd BepisLoader
 
 # Build the .app bundle using the included script
@@ -63,6 +74,11 @@ The resulting `BepisLoader.app` will be in `.build/release/`.
 ---
 
 ## 📝 Changelog
+
+### v2.0.0
+- Added Steamac integration and a framework-neutral mod-management architecture.
+- Added Reloaded-II integration infrastructure; broader compatibility testing is ongoing.
+- Validated BepInEx mods in Steamac with Digimon World: Next Order.
 
 ### v1.0.2
 - **Fixed GameHub mod injection.** BepInEx mods now load correctly in GameHub games via authoritative `settings.environment` patching.
