@@ -16,6 +16,10 @@ struct AssetProfileMerge {
     let conflicts: [String: [String]]
 }
 enum AssetModProfiles {
+    static func isTableCSV(_ key: String) -> Bool {
+        let parts = key.split(separator: "/")
+        return parts.count > 1 && parts.last!.lowercased().hasSuffix(".csv") && parts[parts.count - 2].lowercased().hasSuffix(".mbe")
+    }
     static func load(game: SteamacGame, endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared) throws -> AssetModProfile {
         let data = try bridge.assetProfileState(appId: game.appId, endpoint: endpoint)
         let profile = try JSONDecoder().decode(AssetModProfile.self, from: data)
@@ -89,7 +93,7 @@ enum AssetModProfiles {
     }
     static func apply(_ profile: AssetModProfile, merge: AssetProfileMerge, game: SteamacGame,
                       endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared) throws -> String {
-        if merge.package.files.keys.contains(where: { $0.lowercased().hasSuffix(".csv") }),
+        if merge.package.files.keys.contains(where: isTableCSV),
            !(try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetMbeTablesV1)) {
             throw AssetModPackage.failure("These mods require MBE table compilation. Install the updated Steamac build, restart its VM, then refresh the connection.")
         }

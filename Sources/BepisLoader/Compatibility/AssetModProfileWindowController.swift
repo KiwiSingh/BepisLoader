@@ -65,7 +65,7 @@ final class AssetModProfileWindowController: NSWindowController, NSTableViewData
             let merge = try AssetModProfiles.merge(profile, packages: packages, adapter: adapter)
             let review = NSAlert(); review.messageText = "Apply this asset profile?"
             let conflicts = merge.conflicts.sorted(by: { $0.key < $1.key }).map {
-                $0.key.lowercased().hasSuffix(".csv")
+                AssetModProfiles.isTableCSV($0.key)
                     ? "\($0.key): cell edits combine from \($0.value.joined(separator: ", ")); later mods win competing cell edits"
                     : "\($0.key): \($0.value.last!) wins over \($0.value.dropLast().joined(separator: ", "))"
             }.joined(separator: "\n")
