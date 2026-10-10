@@ -10,6 +10,7 @@ let package = Package(
         .executableTarget(
             name: "BepisLoader",
             path: "Sources/BepisLoader",
+            resources: [.copy("Resources/AssetAdapters")],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug))
             ]

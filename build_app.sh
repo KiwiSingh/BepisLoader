@@ -1,7 +1,10 @@
 #!/bin/bash
 
+# Fail immediately if compilation or packaging fails.
+set -euo pipefail
+
 # 1. Build the release binary
-swift build -c release
+swift build -c release --cache-path "${BEPIS_BUILD_CACHE_PATH:-$PWD/.build/cache}"
 
 # 2. Setup the .app structure
 APP_NAME="BepisLoader"
@@ -14,6 +17,8 @@ mkdir -p "${RESOURCES_DIR}"
 
 # 3. Copy the binary
 cp ".build/release/${APP_NAME}" "${MACOS_DIR}/${APP_NAME}"
+
+cp -R .build/release/BepisLoader_BepisLoader.bundle "${RESOURCES_DIR}/"
 
 # 4. Create Info.plist
 cat > "${BUNDLE_DIR}/Contents/Info.plist" <<EOF
@@ -38,5 +43,7 @@ cat > "${BUNDLE_DIR}/Contents/Info.plist" <<EOF
 </dict>
 </plist>
 EOF
+
+bash ./inject_icon.sh ./BepisLogo.png "${BUNDLE_DIR}"
 
 echo "Successfully built ${APP_NAME}.app in .build/release/"

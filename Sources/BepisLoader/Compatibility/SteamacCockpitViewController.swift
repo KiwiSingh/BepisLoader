@@ -17,6 +17,8 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     private let launchButton = NSButton(title: "Launch via Steamac", target: nil, action: nil)
     private let installFrameworkButton = NSButton(title: "Install BepInEx…", target: nil, action: nil)
     private let installPluginButton = NSButton(title: "Install Plugin…", target: nil, action: nil)
+    private let installAssetButton = NSButton(title: "Install asset mod…", target: nil, action: nil)
+    private let disableAssetButton = NSButton(title: "Disable asset mods", target: nil, action: nil)
     private var pluginOperationBusy = false
     private var games: [SteamacGame] = []
     private var activeEndpoint: SteamacBridgeEndpoint?
@@ -53,6 +55,10 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         installFrameworkButton.action = #selector(installFramework)
         installPluginButton.target = self
         installPluginButton.action = #selector(installPlugin)
+        installAssetButton.target = self
+        installAssetButton.action = #selector(installAssetMod)
+        disableAssetButton.target = self
+        disableAssetButton.action = #selector(disableAssetMods)
         updatePluginButtons()
         // A nonzero initial document frame plus a constrained scroll viewport.
         reportTextView.isEditable = false
@@ -71,7 +77,10 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         reportScroll.borderType = .bezelBorder
         reportScroll.documentView = reportTextView
         reportScroll.heightAnchor.constraint(equalToConstant: 330).isActive = true
-        let stack = NSStackView(views: [title, status, details, refreshButton, scroll, reportScroll, installFrameworkButton, installPluginButton, launchButton])
+        let assetActions = NSStackView(views: [installAssetButton, disableAssetButton])
+        assetActions.orientation = .horizontal
+        assetActions.spacing = 8
+        let stack = NSStackView(views: [title, status, details, refreshButton, scroll, reportScroll, installFrameworkButton, installPluginButton, assetActions, launchButton])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
@@ -547,6 +556,8 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         installFrameworkButton.isEnabled = enabled
         installPluginButton.isEnabled = enabled
         launchButton.isEnabled = enabled
+        installAssetButton.isEnabled = enabled
+        disableAssetButton.isEnabled = enabled
     }
 
     // 41F-21D.40: explicit, per-game framework installation. The existing
@@ -714,6 +725,56 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
                 self.updatePluginButtons()
                 self.showReport(message)
             }
+        }
+    }
+
+    @objc private func installAssetMod() {
+        guard !pluginOperationBusy, let game = selectedPluginGame, let endpoint = activeEndpoint else { return }
+        guard AssetModAdapter.forGame(game.appId) != nil else {
+            showReport("No asset adapter is available for this game yet."); return
+        }
+        let panel = NSOpenPanel()
+        panel.title = "Choose an asset mod folder"
+        panel.message = "Select the extracted mod folder containing ModConfig.json. The game must be closed; Steam can stay open."
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        pluginOperationBusy = true; updatePluginButtons()
+        showReport("Checking asset mod…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let package = try AssetModPackage.inspect(folder: folder, appId: game.appId)
+                DispatchQueue.main.async {
+                    let review = NSAlert()
+                    review.messageText = "Install \(package.name) for \(game.name)?"
+                    review.informativeText = "\(package.files.count) assets · \(package.totalBytes) bytes. BepisLoader will install the assets and show a one-time Steam launch setting to copy. Existing game files are not replaced."
+                    review.addButton(withTitle: "Install"); review.addButton(withTitle: "Cancel")
+                    guard review.runModal() == .alertFirstButtonReturn else {
+                        self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport("Asset installation cancelled."); return
+                    }
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let result: String
+                        do { result = try SteamacAssetModInstaller.install(package, game: game, endpoint: endpoint, bridge: self.bridge) }
+                        catch { result = "Asset installation stopped: \(error.localizedDescription)" }
+                        DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(result) }
+                    }
+                }
+            } catch {
+                let message = error.localizedDescription
+                DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport("Asset mod rejected: \(message)") }
+            }
+        }
+    }
+
+    @objc private func disableAssetMods() {
+        guard !pluginOperationBusy, let game = selectedPluginGame, let endpoint = activeEndpoint else { return }
+        pluginOperationBusy = true; updatePluginButtons()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let message: String
+            do {
+                try self.bridge.disableAssetMods(appId: game.appId, endpoint: endpoint)
+                message = "Asset mods disabled. Installed assets are retained. Remove the BepisLoader setting from Steam Launch Options if you no longer need it."
+            } catch { message = "Could not disable asset mods: \(error.localizedDescription)" }
+            DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(message) }
         }
     }
 

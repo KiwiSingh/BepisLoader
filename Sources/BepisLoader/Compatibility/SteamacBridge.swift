@@ -460,6 +460,8 @@ final class SteamacBridge {
             case "protonEnvironmentInspection":
                 capabilities.insert(.protonEnvironmentInspection)
 
+            case "assetModInstallV1":
+                capabilities.insert(.assetModInstallV1)
             case "bepInExInstallationInventoryV1":
                 capabilities.insert(.bepInExInstallationInventoryV1)
 
@@ -1223,6 +1225,30 @@ final class SteamacBridge {
 
     /// Guest-enforced atomic publication of a staged BepInEx DLL.
     /// Requires pluginCommitV1 on the guest; no fs-rename fallback.
+    /// Dedicated checked publication; never falls back to generic filesystem rename.
+    func commitAssetMod(appId: UInt32, adapter: String, stage: String,
+                        endpoint: SteamacBridgeEndpoint) throws -> String {
+        let hello = try handshake(endpoint: endpoint)
+        guard hello.capabilities.supports(.assetModInstallV1) else {
+            throw SteamacBridgeError.requestFailed("Update Steamac to enable checked asset-mod installation.")
+        }
+        let response = try request("asset-mod-install \(appId) \(encodeProtocolField(adapter)) \(encodeProtocolField(stage))", endpoint: endpoint)
+        let fields = response.split(separator: " ")
+        guard fields.count == 2, fields[0] == "asset-mod-installed" else {
+            throw SteamacBridgeError.malformedResponse(response)
+        }
+        guard let root = decodeProtocolField(String(fields[1])) else { throw SteamacBridgeError.malformedResponse(response) }
+        return root
+    }
+
+    func disableAssetMods(appId: UInt32, endpoint: SteamacBridgeEndpoint) throws {
+        guard try handshake(endpoint: endpoint).capabilities.supports(.assetModInstallV1) else {
+            throw SteamacBridgeError.requestFailed("Update Steamac to manage asset mods.")
+        }
+        let response = try request("asset-mod-disable \(appId)", endpoint: endpoint)
+        guard response == "asset-mod-disabled" else { throw SteamacBridgeError.malformedResponse(response) }
+    }
+
     func commitGuestPlugin(appId: UInt32, stage: String, filename: String,
                            endpoint: SteamacBridgeEndpoint) throws {
         try requireGuestFileAccess(endpoint: endpoint)

@@ -176,6 +176,7 @@ enum GameEnvironmentCapability:
     case protonPrefixResolution
     case protonEnvironmentInspection
     case protonRuntimeAttestationV1
+    case assetModInstallV1
     case bepInExInstallationInventoryV1
     case reloadedIIModInventoryV1
     case reloadedIIModMetadataV1
