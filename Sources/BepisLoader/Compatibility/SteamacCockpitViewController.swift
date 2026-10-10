@@ -728,7 +728,10 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
             do {
                 let state = try self.bridge.modLaunchState(appId: game.appId,
                     requestID: UUID(), endpoint: endpoint)
-                message = "Guest launch status: \(state.rawValue). No launch sent: this protocol does not attest plugin runtime loading. Use Steam's Play button until an attested launch endpoint is implemented."
+                let unloaded = game.appId == 1984270
+                    ? try SteamacUnloadedIIPlan.inspect(game: game, endpoint: endpoint, bridge: self.bridge).report + "\n"
+                    : ""
+                message = unloaded + "Guest launch status: \(state.rawValue). No launch sent: this protocol does not attest plugin runtime loading. Use Steam's Play button until an attested launch endpoint is implemented."
             } catch {
                 message = "Launch blocked: \(error.localizedDescription). No unsafe fallback attempted."
             }
