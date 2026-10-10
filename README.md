@@ -32,16 +32,17 @@
 - **Game-agnostic asset installation:** choose an extracted mod folder in the Steamac cockpit. BepisLoader selects the adapter, snapshots validated assets, uploads through `bepis.sock`, and requests guest-enforced publication. Steam can remain open; the game must be closed.
 - **Independent native MVGL adapter:** no Reloaded-II or .NET hosting is needed for supported asset mods. The game payload stays Windows x64; the coordinating Linux tools support ARM64 and x64 separately.
 - **Steamac safety and recovery work:** payload hashing, release/provenance discovery, bounded guest recovery inventories, recovery-scope planning, host recovery rehearsals, and transactional installer checks remain in place. Static inventory and host rehearsals are not presented as live recovery or injection proof.
+- **Interface cleanup:** developer diagnostic buttons are removed; missing guest capability, executable, architecture and Proton settings now have separate actionable errors.
 - **Release packaging:** universal Intel/Apple Silicon macOS application, bundled adapter licenses and source references, and the app icon injected automatically by `inject_icon.sh`.
 
 ### Asset-mod setup and limits
 
-1. Use a Steamac build advertising `assetModInstallV1` ([companion source patch](https://github.com/KiwiSingh/steamac/pull/2)). Older bridges reject installation safely; copying the macOS app alone does not update the guest agent.
+1. Use a Steamac build advertising `assetModInstallV1` ([Steamac Kiwi Build 5](https://github.com/KiwiSingh/steamac/releases/tag/v1.7.6-kiwi.5)). Older bridges reject installation safely; copying the macOS app alone does not update the guest agent.
 2. Close the game, leave Steam open, select it in BepisLoader's Steamac cockpit, and choose **Install asset mod…**. Select the extracted folder containing `ModConfig.json` and `dsts-loader/`.
 3. **Manual launch setting required:** copy the exact setting from BepisLoader's installation report into Steam → game Properties → Launch Options. It includes the installed asset path, executable hash, and `WINEDLLOVERRIDES='winmm=n,b'`. Preserve any existing options; conflicting Wine overrides need reconciliation. BepisLoader does not change Steam's settings automatically.
 4. Start the game with Steam's **Play** button. **Disable asset mods** parks the checked native adapter; assets are retained. Remove the BepisLoader launch setting when it is no longer needed.
 
-The first adapter supports one selected DDS texture package per launch for **Digimon Story Time Stranger**, AppID `1984270`, with executable SHA-256 `ff9de825a543bf874cfb7e73ed951256d3ce4e8702957afa3b26ca6487a81688`. It resolves the game's `.img` requests to mod `.dds` files. Other builds and games require their own verified adapter; unsupported ones stay blocked. Assets are snapshotted at launch, so edits require restarting the game. The generic controls do not claim universal game compatibility.
+The first adapter supports one selected asset package per launch for **Digimon Story Time Stranger**, AppID `1984270`, with executable SHA-256 `ff9de825a543bf874cfb7e73ed951256d3ce4e8702957afa3b26ca6487a81688`. It preserves asset filenames and bytes exactly, without extension, texture-directory or DDS-header restrictions. Exact filenames are matched first; `.img` requests can also fall back to `.dds` replacements. Other builds and games require their own verified adapter; unsupported ones stay blocked. Assets are snapshotted at launch, so edits require restarting the game. The generic controls do not claim universal game compatibility.
 
 Full Reloaded-II / managed-plugin initialization under ARM64 Proton remains unresolved. This release validates the independent texture-replacement path, not every mod loader or mod type. Existing generic launch-reservation and installation safety gates remain fail closed.
 
