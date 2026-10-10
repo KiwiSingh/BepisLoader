@@ -462,6 +462,8 @@ final class SteamacBridge {
             case "protonEnvironmentInspection":
                 capabilities.insert(.protonEnvironmentInspection)
 
+            case "assetModProfilesV1":
+                capabilities.insert(.assetModProfilesV1)
             case "assetModInstallV1":
                 capabilities.insert(.assetModInstallV1)
             case "bepInExInstallationInventoryV1":
@@ -1263,6 +1265,27 @@ final class SteamacBridge {
             throw SteamacBridgeError.malformedResponse(response)
         }
         guard let root = decodeProtocolField(String(fields[1])) else { throw SteamacBridgeError.malformedResponse(response) }
+        return root
+    }
+
+    func assetProfileState(appId: UInt32, endpoint: SteamacBridgeEndpoint) throws -> Data {
+        guard try handshake(endpoint: endpoint).capabilities.supports(.assetModProfilesV1) else {
+            throw AssetModPackage.failure("Update Steamac to a build supporting assetModProfilesV1, restart the VM with its bundled layer, then refresh the connection.")
+        }
+        let response = try request("asset-profile-state \(appId)", endpoint: endpoint)
+        let parts = response.split(separator: " ")
+        guard parts.count == 2, parts[0] == "asset-profile-state", let decoded = decodeProtocolField(String(parts[1])) else {
+            throw SteamacBridgeError.malformedResponse(response)
+        }
+        return Data(decoded.utf8)
+    }
+
+    func publishAssetProfile(appId: UInt32, adapter: String, stage: String, endpoint: SteamacBridgeEndpoint) throws -> String {
+        let response = try request("asset-profile-publish \(appId) \(encodeProtocolField(adapter)) \(encodeProtocolField(stage))", endpoint: endpoint)
+        let parts = response.split(separator: " ")
+        guard parts.count == 2, parts[0] == "asset-profile-published", let root = decodeProtocolField(String(parts[1])) else {
+            throw SteamacBridgeError.malformedResponse(response)
+        }
         return root
     }
 

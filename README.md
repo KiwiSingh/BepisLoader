@@ -26,6 +26,16 @@
 
 ---
 
+## Asset profiles (development build 2.2.0)
+
+The Steamac cockpit can add multiple asset mod folders and manage a persistent per-game profile. **Manage asset mods…** lists installed mods, enables/disables individual mods, removes them from the profile, and changes their priority. Mods lower in the list win conflicts; the Apply review lists every conflict and its winner.
+
+The matching Steamac development build must advertise `assetModProfilesV1` (Kiwi Build 6). Applying a profile validates stored packages, builds an immutable combined snapshot and atomically switches the guest's `.bepis-assets-active` link. Set the reported Steam Launch Options once to this stable path; subsequent profile changes do not require new launch options. Keep Steam open, close the game before applying, then restart it. All-disabled profiles load no replacements. Old package folders and previous snapshots are retained.
+
+Previous single-package installs are imported into the first profile **disabled** for explicit review. Enable the desired mods and replace the previous package-specific launch path with the stable setting once. The profile is stored in the SteamOS game folder, so closing BepisLoader does not lose it. Limits: 64 mods and 256 MiB of referenced package snapshots; active assets also retain the 4096-file/64-MiB-per-file limits.
+
+**Install Plugins…** in the Steamac cockpit accepts multiple BepInEx DLLs. The entire selection is snapshotted and checked for duplicate names and existing destinations before uploads begin. Every published DLL is verified; a late failure reports the successfully verified subset and stops without deleting it. The local bottle BepInEx picker already supports multiple files.
+
 ## 🐸 What's new in v2.1.0
 
 - **Verified ARM64 SteamOS texture replacement:** the FMC Eyes Green mod rendered green eyes in the x64 Digimon Story Time Stranger game under Proton 11.0 ARM64. The native loader logged replacement of the exact eye texture; the result was confirmed visually in gameplay.
