@@ -1,6 +1,9 @@
 import Foundation
 @main struct AssetProfileTests {
     static func main() throws {
+        precondition(AssetModProfiles.isTableCSV("patch/data/model.mbe/000_sheet.csv"))
+        precondition(!AssetModProfiles.isTableCSV("patch/data/loose.csv"))
+        precondition(!AssetModProfiles.isTableCSV("patch/data/model.mbe/subfolder/sheet.csv"))
         let adapter = AssetModAdapter.supported[0]
         let first = AssetModPackage(adapter: adapter, name: "Eyes", files: ["app_0/images/eyes.img": Data([1]), "unique.bin": Data([3])])
         let second = AssetModPackage(adapter: adapter, name: "Costume", files: ["APP_0/images/eyes.img": Data([2]), "costume.img": Data([4])])
