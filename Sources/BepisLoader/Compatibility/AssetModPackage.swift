@@ -68,17 +68,17 @@ struct AssetModPackage {
             guard values.isRegularFile == true, file.path.hasPrefix(assets.path + "/") else { throw failure("Only regular asset files are supported.") }
             let key = String(file.path.dropFirst(assets.path.count + 1))
             guard key.utf8.count < 1024, key.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value < 127 }),
-                  key.hasPrefix("app_0/images/"), key.hasSuffix(".dds"), !key.contains(":"), !key.contains("\\"),
+                  !key.contains(":"), !key.contains("\\"),
                   key.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
                   key.split(separator: "/").count <= 32, seen.insert(key.lowercased()).inserted else {
                 throw failure("Unsupported or conflicting asset path: \(key)")
             }
             let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            guard size >= 128, size <= 64 * 1024 * 1024, total + size <= 256 * 1024 * 1024, files.count < 4096 else {
+            guard size > 0, size <= 64 * 1024 * 1024, total + size <= 256 * 1024 * 1024, files.count < 4096 else {
                 throw failure("This asset mod exceeds the supported size limits.")
             }
             let data = try boundedRead(file, maximum: size)
-            guard data.count == size, data.starts(with: [0x44, 0x44, 0x53, 0x20]) else { throw failure("Invalid or changed DDS asset: \(key)") }
+            guard data.count == size else { throw failure("Asset changed during inspection: \(key)") }
             files[key] = data; total += data.count
         }
         if let error = enumerationError { throw error }
