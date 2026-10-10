@@ -278,6 +278,17 @@ final class ReloadedIIInstaller {
 
     // ── Download ──────────────────────────────
 
+    // 42A-3: validated Reloaded-II download.
+    //
+    // These are defensive bounds, not a verified statement about
+    // the current official installer release.
+    private static let minimumInstallerBytes: UInt64 = 64 * 1024
+    private static let maximumInstallerBytes: UInt64 = 512 * 1024 * 1024
+
+    // 42A-3-R2: condition-synchronized transfer.
+    //
+    // The transfer owns its file until URLSession has finished.
+    // Timeout closes and removes partial output synchronously.
     private func downloadInstaller() throws -> URL {
         let destination = fm.temporaryDirectory
             .appendingPathComponent(
@@ -285,56 +296,152 @@ final class ReloadedIIInstaller {
             )
             .appendingPathExtension("exe")
 
-        var receivedURL: URL?
-        var receivedError: Error?
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 300
 
-        let semaphore = DispatchSemaphore(value: 0)
+        let transfer = ReloadedIITransfer(
+            destination: destination,
+            maximumBytes: Int64(Self.maximumInstallerBytes)
+        )
 
-        URLSession.shared.downloadTask(
-            with: installerURL
-        ) { temporaryURL, _, error in
+        let session = URLSession(
+            configuration: configuration,
+            delegate: transfer,
+            delegateQueue: nil
+        )
 
-            defer {
-                semaphore.signal()
-            }
+        defer {
+            session.invalidateAndCancel()
+        }
 
-            if let error {
-                receivedError = error
-                return
-            }
+        let task = session.dataTask(with: installerURL)
+        task.resume()
 
-            guard let temporaryURL else {
-                return
-            }
+        let downloadedURL: URL
 
-            do {
-                try self.fm.moveItem(
-                    at: temporaryURL,
-                    to: destination
-                )
-
-                receivedURL = destination
-            } catch {
-                receivedError = error
-            }
-
-        }.resume()
-
-        semaphore.wait()
-
-        if let receivedError {
+        do {
+            downloadedURL = try transfer.wait(
+                for: task,
+                timeout: 330
+            )
+        } catch {
             throw InstallerError.downloadFailed(
-                receivedError.localizedDescription
+                error.localizedDescription
             )
         }
 
-        guard let receivedURL else {
+        do {
+            try validateDownloadedInstaller(at: downloadedURL)
+            return downloadedURL
+        } catch {
+            try? fm.removeItem(at: downloadedURL)
+            throw error
+        }
+    }
+
+    private func validateDownloadedInstaller(
+        at url: URL
+    ) throws {
+        let attributes = try fm.attributesOfItem(
+            atPath: url.path
+        )
+
+        guard let sizeNumber =
+            attributes[.size] as? NSNumber
+        else {
             throw InstallerError.downloadFailed(
-                "No installer was received"
+                "Unable to determine installer size"
             )
         }
 
-        return receivedURL
+        let size = sizeNumber.uint64Value
+
+        guard size >= Self.minimumInstallerBytes else {
+            throw InstallerError.downloadFailed(
+                "Installer is unexpectedly small (\(size) bytes)"
+            )
+        }
+
+        guard size <= Self.maximumInstallerBytes else {
+            throw InstallerError.downloadFailed(
+                "Installer exceeds the 512 MiB safety limit"
+            )
+        }
+
+        let handle = try FileHandle(
+            forReadingFrom: url
+        )
+        defer { try? handle.close() }
+
+        // DOS header: MZ at offset zero.
+        let dosHeader = try handle.read(
+            upToCount: 64
+        ) ?? Data()
+
+        guard dosHeader.count == 64,
+              dosHeader[0] == 0x4D,
+              dosHeader[1] == 0x5A
+        else {
+            throw InstallerError.downloadFailed(
+                "Downloaded file has no valid MZ header"
+            )
+        }
+
+        // e_lfanew: little-endian offset to PE header.
+        let peOffset =
+            UInt64(dosHeader[0x3C])
+            | (UInt64(dosHeader[0x3D]) << 8)
+            | (UInt64(dosHeader[0x3E]) << 16)
+            | (UInt64(dosHeader[0x3F]) << 24)
+
+        guard peOffset >= 64,
+              peOffset <= size - 24
+        else {
+            throw InstallerError.downloadFailed(
+                "Downloaded executable has an invalid PE offset"
+            )
+        }
+
+        try handle.seek(toOffset: peOffset)
+
+        let peHeader = try handle.read(
+            upToCount: 24
+        ) ?? Data()
+
+        guard peHeader.count == 24,
+              peHeader[0] == 0x50,
+              peHeader[1] == 0x45,
+              peHeader[2] == 0,
+              peHeader[3] == 0
+        else {
+            throw InstallerError.downloadFailed(
+                "Downloaded executable has no valid PE signature"
+            )
+        }
+
+        // COFF Machine field.
+        let machine =
+            UInt16(peHeader[4])
+            | (UInt16(peHeader[5]) << 8)
+
+        // x86 and x86-64 Windows executables.
+        guard machine == 0x014C || machine == 0x8664 else {
+            throw InstallerError.downloadFailed(
+                "Unsupported Windows executable architecture"
+            )
+        }
+
+        // COFF Characteristics field, IMAGE_FILE_EXECUTABLE_IMAGE.
+        let characteristics =
+            UInt16(peHeader[22])
+            | (UInt16(peHeader[23]) << 8)
+
+        guard characteristics & 0x0002 != 0 else {
+            throw InstallerError.downloadFailed(
+                "Downloaded PE file is not marked executable"
+            )
+        }
     }
 
     // ── Wine execution ────────────────────────
@@ -548,6 +655,274 @@ final class ReloadedIIInstaller {
                 \(details)
                 """
             }
+        }
+    }
+}
+
+// MARK: - Reloaded-II bounded transfer
+
+// 42A-3-R2: condition-synchronized transfer.
+//
+// Every state transition and file operation is protected by the
+// same NSCondition. A successful result is published only after
+// URLSession finishes and the output file has been closed.
+//
+// This helper never executes the downloaded installer.
+private final class ReloadedIITransfer:
+    NSObject,
+    URLSessionDataDelegate,
+    @unchecked Sendable
+{
+    private let destination: URL
+    private let maximumBytes: Int64
+
+    private let condition = NSCondition()
+
+    private var finished = false
+    private var outcome: Result<URL, Error>?
+    private var handle: FileHandle?
+    private var receivedBytes: Int64 = 0
+    private var failureReason: String?
+    private var expired = false
+
+    init(destination: URL, maximumBytes: Int64) {
+        self.destination = destination
+        self.maximumBytes = maximumBytes
+        super.init()
+    }
+
+    private func failure(_ message: String) -> Error {
+        NSError(
+            domain: "BepisLoader.ReloadedII.Download",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: message
+            ]
+        )
+    }
+
+    // Requires condition to be locked.
+    private func closeAndRemoveLocked() {
+        if let handle {
+            try? handle.close()
+            self.handle = nil
+        }
+
+        try? FileManager.default.removeItem(
+            at: destination
+        )
+    }
+
+    // Requires condition to be locked.
+    private func finishLocked(
+        _ result: Result<URL, Error>
+    ) {
+        guard !finished else {
+            return
+        }
+
+        finished = true
+        outcome = result
+        condition.broadcast()
+    }
+
+    func wait(
+        for task: URLSessionTask,
+        timeout: TimeInterval
+    ) throws -> URL {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        condition.lock()
+
+        while !finished {
+            if !condition.wait(until: deadline) {
+                if !finished {
+                    expired = true
+                    closeAndRemoveLocked()
+
+                    finishLocked(
+                        .failure(
+                            failure(
+                                "Download exceeded \(Int(timeout)) seconds"
+                            )
+                        )
+                    )
+                }
+
+                break
+            }
+        }
+
+        let result = outcome
+        let timedOut = expired
+
+        condition.unlock()
+
+        // Terminal timeout state is visible before cancellation.
+        if timedOut {
+            task.cancel()
+        }
+
+        guard let result else {
+            throw failure("Download finished without a result")
+        }
+
+        return try result.get()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        condition.lock()
+
+        guard !finished else {
+            condition.unlock()
+            completionHandler(.cancel)
+            return
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            failureReason = "Server returned a non-HTTP response"
+            condition.unlock()
+            completionHandler(.cancel)
+            return
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            failureReason =
+                "HTTP \(http.statusCode) from download server"
+            condition.unlock()
+            completionHandler(.cancel)
+            return
+        }
+
+        if response.expectedContentLength > maximumBytes {
+            failureReason = "Installer exceeds 512 MiB"
+            condition.unlock()
+            completionHandler(.cancel)
+            return
+        }
+
+        let created = FileManager.default.createFile(
+            atPath: destination.path,
+            contents: nil,
+            attributes: [
+                .posixPermissions: 0o600
+            ]
+        )
+
+        guard created else {
+            failureReason = "Unable to create installer output file"
+            condition.unlock()
+            completionHandler(.cancel)
+            return
+        }
+
+        do {
+            handle = try FileHandle(
+                forWritingTo: destination
+            )
+
+            condition.unlock()
+            completionHandler(.allow)
+
+        } catch {
+            failureReason = error.localizedDescription
+            closeAndRemoveLocked()
+            condition.unlock()
+            completionHandler(.cancel)
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive data: Data
+    ) {
+        condition.lock()
+
+        guard !finished, failureReason == nil else {
+            condition.unlock()
+            dataTask.cancel()
+            return
+        }
+
+        let incoming = Int64(data.count)
+
+        guard incoming <= maximumBytes - receivedBytes else {
+            failureReason = "Installer exceeds 512 MiB"
+            condition.unlock()
+            dataTask.cancel()
+            return
+        }
+
+        guard let handle else {
+            failureReason = "Installer output file unavailable"
+            condition.unlock()
+            dataTask.cancel()
+            return
+        }
+
+        do {
+            try handle.write(contentsOf: data)
+            receivedBytes += incoming
+            condition.unlock()
+
+        } catch {
+            failureReason = error.localizedDescription
+            condition.unlock()
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        condition.lock()
+        defer {
+            condition.unlock()
+        }
+
+        guard !finished else {
+            return
+        }
+
+        if let failureReason {
+            closeAndRemoveLocked()
+            finishLocked(.failure(failure(failureReason)))
+            return
+        }
+
+        if let error {
+            closeAndRemoveLocked()
+            finishLocked(.failure(error))
+            return
+        }
+
+        guard let handle else {
+            closeAndRemoveLocked()
+            finishLocked(
+                .failure(
+                    failure("Download produced no output file")
+                )
+            )
+            return
+        }
+
+        do {
+            try handle.close()
+            self.handle = nil
+
+            finishLocked(.success(destination))
+
+        } catch {
+            closeAndRemoveLocked()
+            finishLocked(.failure(error))
         }
     }
 }
