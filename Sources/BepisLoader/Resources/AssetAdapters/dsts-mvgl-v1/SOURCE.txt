@@ -7,3 +7,4 @@ winmm.dll: Ultimate ASI Loader, MIT (license included).
 Source: https://github.com/ThirteenAG/Ultimate-ASI-Loader
 Binary provenance: official mjsxi/unloaded-ii-linux 0.6.1 release package, winmm.dll.
 The package does not contain Reloaded-II or .NET. User mods are not redistributed.
+Audio bank replacement: independently authored CRI memory-bank hook, RVA/prologue measured from the pinned user game executable. No Ryo runtime code or binaries are included.
