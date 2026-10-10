@@ -36,7 +36,7 @@ Previous single-package installs are imported into the first profile **disabled*
 
 **Install Plugins…** in the Steamac cockpit accepts multiple BepInEx DLLs. The entire selection is snapshotted and checked for duplicate names and existing destinations before uploads begin. Every published DLL is verified; a late failure reports the successfully verified subset and stops without deleting it. The local bottle BepInEx picker already supports multiple files.
 
-## 🐸 What's new in v2.2.0
+## 🐸 What's new in v2.1.0
 
 - **Verified ARM64 SteamOS texture replacement:** the FMC Eyes Green mod rendered green eyes in the x64 Digimon Story Time Stranger game under Proton 11.0 ARM64. The native loader logged replacement of the exact eye texture; the result was confirmed visually in gameplay.
 - **Game-agnostic asset installation:** choose an extracted mod folder in the Steamac cockpit. BepisLoader selects the adapter, snapshots validated assets, uploads through `bepis.sock`, and requests guest-enforced publication. Steam can remain open; the game must be closed.
@@ -102,6 +102,11 @@ The resulting `BepisLoader.app` will be in `.build/release/`.
 ## 📝 Changelog
 
 ### v2.2.0
+
+- Persistent combined asset profiles, MBE table compilation, and multi-select BepInEx plugins.
+- Verified DigiRide riding with both costume mods through one stable launch path.
+
+### v2.1.0
 - Added checked asset-only mod installation and disabling through the Steamac bridge.
 - Confirmed Digimon Story Time Stranger eye-texture replacement in ARM64 SteamOS / x64 Proton gameplay.
 - Included current Steamac recovery, provenance and installer work without weakening runtime safety gates.
