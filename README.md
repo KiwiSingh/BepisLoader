@@ -2,7 +2,9 @@
 
 ![BepisLoader Logo](BepisLogo.png)
 
-**BepisLoader 2.0** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
+**BepisLoader 2.1** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
+
+[Download BepisLoader 2.1.0](https://github.com/KiwiSingh/BepisLoader/releases/tag/v2.1.0) · [All releases](https://github.com/KiwiSingh/BepisLoader/releases)
 
 ---
 
@@ -17,23 +19,35 @@
 | **Direct Env Injection** | For GameHub, BepisLoader injects `DOORSTOP_ENABLE`, `DOORSTOP_INVOKE_DLL_PATH`, and mandatory Mono runtime paths directly into the `environment` dictionary in GameHub's settings JSON for maximum reliability. |
 | **Auto-Quarantine Removal** | Automatically runs `xattr -rs com.apple.quarantine` on all BepInEx files to prevent macOS "Developer cannot be verified" errors. |
 | **Mod Manager** | Install `.dll` plugins by file picker; handles macOS security scoping for external drives; reads `[BepInPlugin]` metadata for display. |
-| **Steamac Integration** | Discover Steamac game environments and deploy BepInEx components through the guest bridge. |
+| **Steamac Integration** | Discover SteamOS games, inspect Proton and Windows architecture, deploy BepInEx, and review framework installation and recovery evidence through the guest bridge. |
+| **Asset Mods** | Game-agnostic **Install asset mod…** / **Disable asset mods** controls select a supported adapter. The first adapter replaces Digimon Story Time Stranger DDS textures while its x64 game runs under ARM64 Proton. |
+| **Checked Publication** | Asset packages reject executable mod payloads, unsupported dependencies, symlinks, conflicting paths and oversized files. The guest verifies the pinned game build and loader before publishing without replacing existing files. |
 | **Multi-Framework Architecture** | Framework-neutral game and mod management with Reloaded-II installation and dependency-management infrastructure. |
 
 ---
 
-## 🐸 What's new in v2.0.0
+## 🐸 What's new in v2.1.0
 
-- **Steamac / BepisBridge integration:** Discover Steamac games and manage BepInEx deployments inside a running SteamOS VM.
-- **Framework-agnostic foundations:** Game environments and mod-management interfaces are no longer coupled exclusively to BepInEx.
-- **Reloaded-II infrastructure:** Framework discovery, installation, mod metadata, dependency planning, load-order controls, and transactional operations have been implemented; end-to-end workflows remain under validation.
-- **Verified integration:** BepInEx 6 Unity IL2CPP and a mod were successfully tested with *Digimon World: Next Order* (Steam AppID `1530160`) inside Steamac.
+- **Verified ARM64 SteamOS texture replacement:** the FMC Eyes Green mod rendered green eyes in the x64 Digimon Story Time Stranger game under Proton 11.0 ARM64. The native loader logged replacement of the exact eye texture; the result was confirmed visually in gameplay.
+- **Game-agnostic asset installation:** choose an extracted mod folder in the Steamac cockpit. BepisLoader selects the adapter, snapshots validated assets, uploads through `bepis.sock`, and requests guest-enforced publication. Steam can remain open; the game must be closed.
+- **Independent native MVGL adapter:** no Reloaded-II or .NET hosting is needed for supported asset mods. The game payload stays Windows x64; the coordinating Linux tools support ARM64 and x64 separately.
+- **Steamac safety and recovery work:** payload hashing, release/provenance discovery, bounded guest recovery inventories, recovery-scope planning, host recovery rehearsals, and transactional installer checks remain in place. Static inventory and host rehearsals are not presented as live recovery or injection proof.
+- **Release packaging:** universal Intel/Apple Silicon macOS application, bundled adapter licenses and source references, and the app icon injected automatically by `inject_icon.sh`.
 
-**Scope note:** The Steamac/BepInEx path is tested; Reloaded-II end-to-end installation and texture modding are not claimed as validated in this release.
+### Asset-mod setup and limits
+
+1. Use a Steamac build advertising `assetModInstallV1` ([companion source patch](https://github.com/KiwiSingh/steamac/pull/2)). Older bridges reject installation safely; copying the macOS app alone does not update the guest agent.
+2. Close the game, leave Steam open, select it in BepisLoader's Steamac cockpit, and choose **Install asset mod…**. Select the extracted folder containing `ModConfig.json` and `dsts-loader/`.
+3. **Manual launch setting required:** copy the exact setting from BepisLoader's installation report into Steam → game Properties → Launch Options. It includes the installed asset path, executable hash, and `WINEDLLOVERRIDES='winmm=n,b'`. Preserve any existing options; conflicting Wine overrides need reconciliation. BepisLoader does not change Steam's settings automatically.
+4. Start the game with Steam's **Play** button. **Disable asset mods** parks the checked native adapter; assets are retained. Remove the BepisLoader launch setting when it is no longer needed.
+
+The first adapter supports one selected DDS texture package per launch for **Digimon Story Time Stranger**, AppID `1984270`, with executable SHA-256 `ff9de825a543bf874cfb7e73ed951256d3ce4e8702957afa3b26ca6487a81688`. It resolves the game's `.img` requests to mod `.dds` files. Other builds and games require their own verified adapter; unsupported ones stay blocked. Assets are snapshotted at launch, so edits require restarting the game. The generic controls do not claim universal game compatibility.
+
+Full Reloaded-II / managed-plugin initialization under ARM64 Proton remains unresolved. This release validates the independent texture-replacement path, not every mod loader or mod type. Existing generic launch-reservation and installation safety gates remain fail closed.
 
 ## 🛠 Installation & Usage
 
-1. **Download**: Grab the latest `BepisLoader.app` from the Releases page.
+1. **Download**: Download and extract [BepisLoader-v2.1.0-macOS-universal.zip](https://github.com/KiwiSingh/BepisLoader/releases/download/v2.1.0/BepisLoader-v2.1.0-macOS-universal.zip).
 2. **Select Game**: The app will scan your bottles automatically. If your game is on an external drive, use the **"+ Add Game → From Mac / External Drive"** option.
 3. **Install**: Click **"Install BepisLoader"**. It will download the correct BepInEx version, configure your Wine registry, and patch your compatibility layer's config files.
 4. **Add Mods**: Use **"+ Add Mod…"** to install `.dll` plugin files into the game's `BepInEx/plugins/` folder.
@@ -54,7 +68,8 @@ cd BepisLoader
 chmod +x build_app.sh inject_icon.sh
 ./build_app.sh
 
-# (Optional) Inject the Bepis icon into the bundle
+# build_app.sh also runs inject_icon.sh automatically.
+# To reinject the icon into an existing bundle:
 ./inject_icon.sh BepisLogo.png
 ```
 
@@ -74,6 +89,13 @@ The resulting `BepisLoader.app` will be in `.build/release/`.
 ---
 
 ## 📝 Changelog
+
+### v2.1.0
+- Added checked asset-only mod installation and disabling through the Steamac bridge.
+- Confirmed Digimon Story Time Stranger eye-texture replacement in ARM64 SteamOS / x64 Proton gameplay.
+- Included current Steamac recovery, provenance and installer work without weakening runtime safety gates.
+- Documented the required manual Steam launch setting and matching guest capability.
+- Bundled the app icon, adapter licenses, and corresponding source references.
 
 ### v2.0.0
 - Added Steamac integration and a framework-neutral mod-management architecture.

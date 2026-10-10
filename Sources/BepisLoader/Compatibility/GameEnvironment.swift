@@ -169,6 +169,7 @@ enum GameEnvironmentCapability:
     CaseIterable,
     Hashable
 {
+    case recoveryInventoryV1
     case guestFileAccess
     case guestCommandExecution
     case steamLibraryDiscovery
@@ -176,6 +177,7 @@ enum GameEnvironmentCapability:
     case protonPrefixResolution
     case protonEnvironmentInspection
     case protonRuntimeAttestationV1
+    case assetModInstallV1
     case bepInExInstallationInventoryV1
     case reloadedIIModInventoryV1
     case reloadedIIModMetadataV1

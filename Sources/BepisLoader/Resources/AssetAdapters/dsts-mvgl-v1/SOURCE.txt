@@ -1,0 +1,9 @@
+bepis-mvgl.asi: independent asset-only adapter, GPL-3.0 (repository license included).
+Source: https://github.com/KiwiSingh/unloaded-ii-linux/tree/codex/arm64-linux/src/native/mvgl-assets
+Build: scripts/build-mvgl-native.sh (Windows x64 MinGW, independent of ARM64 Linux host).
+DSTS signatures: RyoTune/DSTS.ModLoader, MIT (license included).
+MinHook 1.3.4: BSD (license included).
+winmm.dll: Ultimate ASI Loader, MIT (license included).
+Source: https://github.com/ThirteenAG/Ultimate-ASI-Loader
+Binary provenance: official mjsxi/unloaded-ii-linux 0.6.1 release package, winmm.dll.
+The package does not contain Reloaded-II or .NET. User mods are not redistributed.

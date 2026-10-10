@@ -4,7 +4,7 @@ import CryptoKit
 import UniformTypeIdentifiers
 
 // 41F-21D.38-R1: Steamac cockpit with generic plugin inspection.
-// No guest launches, reservations, or mod mutations are issued by this UI.
+// Runtime launch stays fail closed. Asset publication is checked by the guest.
 final class SteamacCockpitViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     private let bridge = SteamacBridge.shared
     private let status = NSTextField(labelWithString: "Checking Steamac…")
@@ -17,6 +17,19 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     private let launchButton = NSButton(title: "Launch via Steamac", target: nil, action: nil)
     private let installFrameworkButton = NSButton(title: "Install BepInEx…", target: nil, action: nil)
     private let installPluginButton = NSButton(title: "Install Plugin…", target: nil, action: nil)
+    // 42A-14: local read-only inspection; NOT an installation or provenance approval.
+    private let inspectPayloadButton = NSButton(title: "Inspect Local Payload…", target: nil, action: nil)
+    private let fetchReleaseButton = NSButton(title: "Fetch Latest Reloaded-II (Host Only)…", target: nil, action: nil)
+    private let discoverProvenanceButton = NSButton(title: "Fetch & Discover Reloaded-II Provenance…", target: nil, action: nil)
+    private let recoveryRehearsalButton = NSButton(title: "Rehearse Recovery (Host Fixture Only)…", target: nil, action: nil)
+    private let recoveryScopeButton = NSButton(title: "Review Recovery Scope Plan (Read Only)…", target: nil, action: nil)
+    private let discoverScopeButton = NSButton(title: "Discover Guest Recovery Scope (Read Only)…", target: nil, action: nil)
+    private let guestInventoryButton = NSButton(title: "Collect Guest Recovery Inventory (Read Only)…", target: nil, action: nil)
+    private var recoveryScopeReport: String?
+    private var recoveryRehearsalBusy = false
+    private var releaseFetchBusy = false
+    private let installAssetButton = NSButton(title: "Install asset mod…", target: nil, action: nil)
+    private let disableAssetButton = NSButton(title: "Disable asset mods", target: nil, action: nil)
     private var pluginOperationBusy = false
     private var games: [SteamacGame] = []
     private var activeEndpoint: SteamacBridgeEndpoint?
@@ -53,6 +66,24 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         installFrameworkButton.action = #selector(installFramework)
         installPluginButton.target = self
         installPluginButton.action = #selector(installPlugin)
+        inspectPayloadButton.target = self
+        inspectPayloadButton.action = #selector(inspectLocalPayload)
+        guestInventoryButton.target = self
+        guestInventoryButton.action = #selector(collectGuestRecoveryInventory)
+        discoverScopeButton.target = self
+        discoverScopeButton.action = #selector(discoverGuestRecoveryScope)
+        recoveryScopeButton.target = self
+        recoveryScopeButton.action = #selector(reviewRecoveryScope)
+        recoveryRehearsalButton.target = self
+        recoveryRehearsalButton.action = #selector(rehearseHostRecovery)
+        discoverProvenanceButton.target = self
+        discoverProvenanceButton.action = #selector(discoverReloadedProvenance)
+        fetchReleaseButton.target = self
+        fetchReleaseButton.action = #selector(fetchLatestReloadedRelease)
+        installAssetButton.target = self
+        installAssetButton.action = #selector(installAssetMod)
+        disableAssetButton.target = self
+        disableAssetButton.action = #selector(disableAssetMods)
         updatePluginButtons()
         // A nonzero initial document frame plus a constrained scroll viewport.
         reportTextView.isEditable = false
@@ -71,7 +102,10 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         reportScroll.borderType = .bezelBorder
         reportScroll.documentView = reportTextView
         reportScroll.heightAnchor.constraint(equalToConstant: 330).isActive = true
-        let stack = NSStackView(views: [title, status, details, refreshButton, scroll, reportScroll, installFrameworkButton, installPluginButton, launchButton])
+        let assetActions = NSStackView(views: [installAssetButton, disableAssetButton])
+        assetActions.orientation = .horizontal
+        assetActions.spacing = 8
+        let stack = NSStackView(views: [title, status, details, refreshButton, scroll, assetActions, reportScroll, inspectPayloadButton, fetchReleaseButton, discoverProvenanceButton, recoveryRehearsalButton, recoveryScopeButton, discoverScopeButton, guestInventoryButton, installFrameworkButton, installPluginButton, launchButton])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
@@ -101,6 +135,8 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     }
 
     @objc private func refresh() {
+        recoveryScopeReport = nil
+        recoveryScopeButton.isEnabled = false
         refreshGeneration += 1
         selectionGeneration += 1
         let generation = refreshGeneration
@@ -177,6 +213,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         selectionGeneration += 1
+        recoveryScopeReport = nil
         updatePluginButtons()
         let selection = selectionGeneration
         let index = gameTable.selectedRow
@@ -463,7 +500,8 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
                 // identity are checked by the existing guard above.
                 let readiness = snapshots.map { framework, snapshot -> String in
                     let transaction = SteamacInstallationTransaction(
-                        appID: game.appId, framework: framework, operations: []
+                        appID: game.appId, framework: framework,
+                        operations: SteamacTransactionReviewPlan.operations(for: framework)
                     )
                     // 41F-21D.13: coordinator-backed read-only review.
                     // All reviews remain unreviewed; this cannot authorize installation.
@@ -503,10 +541,18 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
                     Safety decision: \(decision.decision.rawValue)
                     Blocking issues: \(issues.isEmpty ? "none" : issues)
                     Preflight issues: \(preflightIssues.isEmpty ? "none" : preflightIssues)
+                    Transaction plan: DECLARED (payload validation, snapshot, verification, rollback; none executed)
+                    42A-13 evidence preparation: local SHA-256 verifier available (not run automatically)
+                    Release provenance: NOT AUTHENTICATED · Recovery: CHECKLIST ONLY (no snapshot/restore)
+                    Review attestations: UNCHANGED · No installation authorization
                     Safety reviews: UNREVIEWED (no authenticated payload, snapshot, rollback, or verification approvals)
                     Installation: DISABLED · No authorization or launch verification
                     """
                 }.joined(separator: "\n\n")
+                self.recoveryScopeReport = SteamacRecoveryScopePlan.report(
+                    appID: game.appId, name: game.name, installPath: game.installPath,
+                    libraryPath: game.libraryPath, prefix: prefix, runtime: runtime)
+                self.updatePluginButtons()
                 self.showReport("""
                 \(game.name) · AppID \(game.appId)
                 Install: \(game.installPath)
@@ -543,10 +589,19 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     }
 
     private func updatePluginButtons() {
+        fetchReleaseButton.isEnabled = !releaseFetchBusy && !pluginOperationBusy && !recoveryRehearsalBusy
+        discoverProvenanceButton.isEnabled = fetchReleaseButton.isEnabled
+        recoveryRehearsalButton.isEnabled = fetchReleaseButton.isEnabled
+        recoveryScopeButton.isEnabled = recoveryScopeReport != nil && selectedPluginGame != nil && activeEndpoint != nil && !pluginOperationBusy && !releaseFetchBusy && !recoveryRehearsalBusy
         let enabled = selectedPluginGame != nil && activeEndpoint != nil && !pluginOperationBusy
+        discoverScopeButton.isEnabled = enabled && !releaseFetchBusy && !recoveryRehearsalBusy
+        guestInventoryButton.isEnabled = discoverScopeButton.isEnabled
         installFrameworkButton.isEnabled = enabled
         installPluginButton.isEnabled = enabled
         launchButton.isEnabled = enabled
+        installAssetButton.isEnabled = enabled
+        disableAssetButton.isEnabled = enabled
+        inspectPayloadButton.isEnabled = enabled
     }
 
     // 41F-21D.40: explicit, per-game framework installation. The existing
@@ -717,6 +772,273 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         }
     }
 
+    @objc private func collectGuestRecoveryInventory() {
+        guard guestInventoryButton.isEnabled, let game = selectedPluginGame,
+              let endpoint = activeEndpoint, !pluginOperationBusy else { return }
+        let selection = selectionGeneration
+        let generation = refreshGeneration
+        pluginOperationBusy = true
+        updatePluginButtons()
+        showReport("42A-20: Collecting bounded no-follow guest inventory; no file contents or guest mutations…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            var report: String
+            do {
+                let fm = FileManager.default
+                let root = try fm.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                let directory = root.appendingPathComponent("BepisLoader/42A-20/" + UUID().uuidString)
+                try fm.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                var summaries: [String] = []
+                for scope in ["game", "prefix", "users", "userdata"] {
+                    do {
+                        let inventory = try self.bridge.recoveryInventory(appID: game.appId, scope: scope, endpoint: endpoint)
+                        let encoder = JSONEncoder()
+                        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                        try encoder.encode(inventory).write(to: directory.appendingPathComponent(scope + ".json"), options: .atomic)
+                        summaries.append(inventory.summary(scope: scope))
+                    } catch { summaries.append("Scope: \(scope) · UNAVAILABLE: \(error.localizedDescription)") }
+                }
+                report = """
+                42A-20 · READ-ONLY APPID-SCOPED GUEST INVENTORY
+                Game: \(game.name) · AppID \(game.appId)
+                Collected: \(ISO8601DateFormatter().string(from: Date()))
+                Host evidence: \(directory.path)
+                \(summaries.joined(separator: "\n\n"))
+
+                Scope remains INCOMPLETE: metadata observations are non-atomic, saved-name matches are hypotheses, and external save completeness, Cloud synchronization, and installer writes are unresolved.
+                Traversal uses no-follow directory descriptors; symlinks are recorded, never traversed. Device or Linux mount-ID crossings are detected and skipped.
+                File contents/SHA-256, ACLs, extended attributes, consistency/quiescence, capacity and crash recovery: NOT VERIFIED.
+                Real guest snapshot/rollback restorability: NOT VERIFIED
+                Publisher provenance: NOT VERIFIED · Verification criteria: NOT APPROVED
+                Safety attestations: UNCHANGED · Installation/injection authorization: NONE
+                No game/prefix/save writes, snapshot/restore, installer or mod execution.
+                """
+                try report.write(to: directory.appendingPathComponent("evidence.txt"), atomically: true, encoding: .utf8)
+            } catch { report = "42A-20 inventory failed: \(error.localizedDescription). Safety attestations unchanged." }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pluginOperationBusy = false
+                self.updatePluginButtons()
+                guard self.selectionGeneration == selection, self.refreshGeneration == generation,
+                      self.activeEndpoint?.socketURL == endpoint.socketURL,
+                      self.selectedPluginGame?.appId == game.appId else { return }
+                self.showReport(report)
+            }
+        }
+    }
+
+    @objc private func discoverGuestRecoveryScope() {
+        guard discoverScopeButton.isEnabled, let game = selectedPluginGame,
+              let endpoint = activeEndpoint, !pluginOperationBusy else { return }
+        let selection = selectionGeneration
+        let generation = refreshGeneration
+        pluginOperationBusy = true
+        updatePluginButtons()
+        showReport("42A-19: Collecting bounded guest path metadata (read-only)…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            var prefix: String?
+            let prefixEvidence: String
+            do {
+                prefix = try self.bridge.protonPrefix(for: game.appId, endpoint: endpoint)?.guestPath
+                prefixEvidence = prefix ?? "Not resolved"
+            } catch { prefixEvidence = "UNAVAILABLE: \(error.localizedDescription)" }
+            let report = SteamacRecoveryScopeDiscovery.report(appID: game.appId, name: game.name,
+                install: game.installPath, prefix: prefix, prefixEvidence: prefixEvidence) { path in
+                let info = try self.bridge.guestFileInfo(at: path, endpoint: endpoint)
+                return (kind: info.kind.rawValue, size: info.size)
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pluginOperationBusy = false
+                self.updatePluginButtons()
+                guard self.selectionGeneration == selection, self.refreshGeneration == generation,
+                      self.activeEndpoint?.socketURL == endpoint.socketURL,
+                      self.selectedPluginGame?.appId == game.appId else { return }
+                self.showReport(report)
+            }
+        }
+    }
+
+    @objc private func reviewRecoveryScope() {
+        guard recoveryScopeButton.isEnabled, let report = recoveryScopeReport else { return }
+        showReport(report)
+    }
+
+    @objc private func rehearseHostRecovery() {
+        guard !recoveryRehearsalBusy, !releaseFetchBusy, !pluginOperationBusy else { return }
+        recoveryRehearsalBusy = true
+        updatePluginButtons()
+        showReport("42A-17: Rehearsing snapshot and restore with disposable host fixtures only…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let report: String
+            do { report = try SteamacRecoveryRehearsal.run() }
+            catch { report = "42A-17: Rehearsal FAILED: \(error.localizedDescription)\nNo real guest recovery was attempted; safety reviews remain unchanged." }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.recoveryRehearsalBusy = false
+                self.updatePluginButtons()
+                self.showReport(report)
+            }
+        }
+    }
+
+    // Independent of guest selection/connectivity; evidence never enters safety reviews.
+    @objc private func discoverReloadedProvenance() {
+        fetchReloadedRelease(discoverProvenance: true)
+    }
+
+    @objc private func fetchLatestReloadedRelease() {
+        fetchReloadedRelease(discoverProvenance: false)
+    }
+
+    private func fetchReloadedRelease(discoverProvenance: Bool) {
+        guard !releaseFetchBusy, !pluginOperationBusy, !recoveryRehearsalBusy else { return }
+        releaseFetchBusy = true
+        updatePluginButtons()
+        showReport("42A-15: Fetching latest official stable release and hashing Setup-Linux.exe on the Mac only…")
+        Task { [weak self] in
+            let report: String
+            do { report = try await SteamacReloadedReleaseFetcher().fetch(discoverProvenance: discoverProvenance) }
+            catch { report = "Release fetch/discovery failed: \(error.localizedDescription)\nIncomplete payload discarded. No installation, guest operation, or safety approval performed." }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.releaseFetchBusy = false
+                self.updatePluginButtons()
+                self.showReport(report)
+            }
+        }
+    }
+
+    // 42A-14: The user chooses a LOCAL file and supplies a separately obtained
+    // reference digest. The verifier only compares bytes; it cannot authenticate
+    // the reference, verify release provenance, or approve an installation.
+    @objc private func inspectLocalPayload() {
+        guard let game = selectedPluginGame, let endpoint = activeEndpoint,
+              !pluginOperationBusy else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Inspect local installer (read-only)"
+        panel.message = "Select a local payload. No file is uploaded or installed."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let prompt = NSAlert()
+        prompt.messageText = "Enter independently obtained SHA-256"
+        prompt.informativeText = "AppID \(game.appId). Paste a 64-character reference digest from a source you independently trust. This comparison does NOT authenticate that source. Cancel leaves everything unchanged."
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 420, height: 24))
+        input.placeholderString = "64 hexadecimal characters"
+        prompt.accessoryView = input
+        prompt.addButton(withTitle: "Compare Locally")
+        prompt.addButton(withTitle: "Cancel")
+        guard prompt.runModal() == .alertFirstButtonReturn else { return }
+        let expected = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard expected.count == 64, expected.utf8.allSatisfy({
+            ($0 >= 48 && $0 <= 57) || ($0 >= 65 && $0 <= 70) || ($0 >= 97 && $0 <= 102)
+        }) else {
+            showReport("42A-14: Invalid SHA-256 reference. No file read or installation performed.")
+            return
+        }
+        let selectionAtStart = selectionGeneration
+        let refreshAtStart = refreshGeneration
+        pluginOperationBusy = true
+        updatePluginButtons()
+        showReport("42A-14: Hashing selected local file (read-only)…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let report: String
+            do {
+                let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey])
+                guard values.isSymbolicLink != true, values.isRegularFile == true else {
+                    throw SteamacEvidencePreparationError.notRegularFile
+                }
+                let result = try SteamacTransactionEvidencePreparation.verifyLocalPayload(
+                    at: url, expectedSHA256: expected)
+                let recovery = SteamacRecoveryReadinessPreparation.checklist(
+                    appID: game.appId, framework: .reloadedII)
+                report = """
+                42A-14 · LOCAL PAYLOAD INSPECTION · AppID \(game.appId)
+                Filename: \(result.fileName)
+                Bytes: \(result.byteCount)
+                Computed SHA-256: \(result.computedSHA256)
+                Reference SHA-256: \(result.expectedSHA256)
+                Digest comparison: \(result.digestMatches ? "MATCH" : "MISMATCH — DO NOT USE")
+                Reference provenance: UNAUTHENTICATED (user-supplied)
+                Upstream signature/release identity: NOT VERIFIED
+                Snapshot restorability: NOT VERIFIED
+                Rollback restorability: NOT VERIFIED
+                Verification criteria: NOT APPROVED
+                Recovery checklist:
+                \(recovery.items.map { "• " + $0 }.joined(separator: "\n"))
+                Coordinator safety reviews: UNREVIEWED
+                Installation: DISABLED · No guest operation or game modification
+                """
+            } catch {
+                report = "42A-14: Local inspection failed: \(error). No guest operation or installation performed."
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pluginOperationBusy = false
+                self.updatePluginButtons()
+                guard self.selectionGeneration == selectionAtStart,
+                      self.refreshGeneration == refreshAtStart,
+                      self.activeEndpoint?.socketURL == endpoint.socketURL,
+                      self.selectedPluginGame?.appId == game.appId else { return }
+                self.showReport(report)
+            }
+        }
+    }
+
+    @objc private func installAssetMod() {
+        guard !pluginOperationBusy, let game = selectedPluginGame, let endpoint = activeEndpoint else { return }
+        guard AssetModAdapter.forGame(game.appId) != nil else {
+            showReport("No asset adapter is available for this game yet."); return
+        }
+        let panel = NSOpenPanel()
+        panel.title = "Choose an asset mod folder"
+        panel.message = "Select the extracted mod folder containing ModConfig.json. The game must be closed; Steam can stay open."
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        pluginOperationBusy = true; updatePluginButtons()
+        showReport("Checking asset mod…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let package = try AssetModPackage.inspect(folder: folder, appId: game.appId)
+                DispatchQueue.main.async {
+                    let review = NSAlert()
+                    review.messageText = "Install \(package.name) for \(game.name)?"
+                    review.informativeText = "\(package.files.count) assets · \(package.totalBytes) bytes. BepisLoader will install the assets and show a one-time Steam launch setting to copy. Existing game files are not replaced."
+                    review.addButton(withTitle: "Install"); review.addButton(withTitle: "Cancel")
+                    guard review.runModal() == .alertFirstButtonReturn else {
+                        self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport("Asset installation cancelled."); return
+                    }
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let result: String
+                        do { result = try SteamacAssetModInstaller.install(package, game: game, endpoint: endpoint, bridge: self.bridge) }
+                        catch { result = "Asset installation stopped: \(error.localizedDescription)" }
+                        DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(result) }
+                    }
+                }
+            } catch {
+                let message = error.localizedDescription
+                DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport("Asset mod rejected: \(message)") }
+            }
+        }
+    }
+
+    @objc private func disableAssetMods() {
+        guard !pluginOperationBusy, let game = selectedPluginGame, let endpoint = activeEndpoint else { return }
+        pluginOperationBusy = true; updatePluginButtons()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let message: String
+            do {
+                try self.bridge.disableAssetMods(appId: game.appId, endpoint: endpoint)
+                message = "Asset mods disabled. Installed assets are retained. Remove the BepisLoader setting from Steam Launch Options if you no longer need it."
+            } catch { message = "Could not disable asset mods: \(error.localizedDescription)" }
+            DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(message) }
+        }
+    }
+
     @objc private func launchViaSteamac() {
         guard let game = selectedPluginGame, let endpoint = activeEndpoint, !pluginOperationBusy else { return }
         pluginOperationBusy = true
@@ -728,7 +1050,10 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
             do {
                 let state = try self.bridge.modLaunchState(appId: game.appId,
                     requestID: UUID(), endpoint: endpoint)
-                message = "Guest launch status: \(state.rawValue). No launch sent: this protocol does not attest plugin runtime loading. Use Steam's Play button until an attested launch endpoint is implemented."
+                let unloaded = game.appId == 1984270
+                    ? try SteamacUnloadedIIPlan.inspect(game: game, endpoint: endpoint, bridge: self.bridge).report + "\n"
+                    : ""
+                message = unloaded + "Guest launch status: \(state.rawValue). No launch sent: this protocol does not attest plugin runtime loading. Use Steam's Play button until an attested launch endpoint is implemented."
             } catch {
                 message = "Launch blocked: \(error.localizedDescription). No unsafe fallback attempted."
             }

@@ -442,6 +442,8 @@ final class SteamacBridge {
             in parts.dropFirst(3)
         {
             switch raw {
+            case "recoveryInventoryV1":
+                capabilities.insert(.recoveryInventoryV1)
             case "guestFileAccess":
                 capabilities.insert(
                     .guestFileAccess
@@ -460,6 +462,8 @@ final class SteamacBridge {
             case "protonEnvironmentInspection":
                 capabilities.insert(.protonEnvironmentInspection)
 
+            case "assetModInstallV1":
+                capabilities.insert(.assetModInstallV1)
             case "bepInExInstallationInventoryV1":
                 capabilities.insert(.bepInExInstallationInventoryV1)
 
@@ -1219,10 +1223,57 @@ final class SteamacBridge {
     }
 
 
+    // 42A-20: AppID-scoped no-follow inventory. No arbitrary path argument.
+    func recoveryInventory(appID: UInt32, scope: String,
+                           endpoint: SteamacBridgeEndpoint) throws -> SteamacGuestRecoveryInventory {
+        guard ["game", "prefix", "users", "userdata"].contains(scope),
+              try handshake(endpoint: endpoint).capabilities.supports(.recoveryInventoryV1) else {
+            throw SteamacBridgeError.requestFailed("Read-only recovery inventory capability unavailable")
+        }
+        let lines = try requestLines("recovery-inventory \(appID) \(scope)", endpoint: endpoint,
+                                     terminator: "recovery-inventory-end")
+        guard lines.first == "recovery-inventory-begin", lines.last == "recovery-inventory-end",
+              lines.count <= 500 else { throw SteamacBridgeError.malformedResponse("Invalid inventory framing") }
+        var data = Data()
+        for line in lines.dropFirst().dropLast() {
+            let prefix = "recovery-inventory-chunk "
+            guard line.hasPrefix(prefix), let chunk = Self.decodeHexData(String(line.dropFirst(prefix.count))) else {
+                throw SteamacBridgeError.malformedResponse("Invalid inventory chunk")
+            }
+            data.append(chunk)
+            guard data.count <= 1024 * 1024 else { throw SteamacBridgeError.responseTooLarge }
+        }
+        return try SteamacGuestRecoveryInventory.decode(data)
+    }
+
     // MARK: - Guest filesystem
 
     /// Guest-enforced atomic publication of a staged BepInEx DLL.
     /// Requires pluginCommitV1 on the guest; no fs-rename fallback.
+    /// Dedicated checked publication; never falls back to generic filesystem rename.
+    func commitAssetMod(appId: UInt32, adapter: String, stage: String,
+                        endpoint: SteamacBridgeEndpoint) throws -> String {
+        let hello = try handshake(endpoint: endpoint)
+        guard hello.capabilities.supports(.assetModInstallV1) else {
+            throw SteamacBridgeError.requestFailed("Update Steamac to enable checked asset-mod installation.")
+        }
+        let response = try request("asset-mod-install \(appId) \(encodeProtocolField(adapter)) \(encodeProtocolField(stage))", endpoint: endpoint)
+        let fields = response.split(separator: " ")
+        guard fields.count == 2, fields[0] == "asset-mod-installed" else {
+            throw SteamacBridgeError.malformedResponse(response)
+        }
+        guard let root = decodeProtocolField(String(fields[1])) else { throw SteamacBridgeError.malformedResponse(response) }
+        return root
+    }
+
+    func disableAssetMods(appId: UInt32, endpoint: SteamacBridgeEndpoint) throws {
+        guard try handshake(endpoint: endpoint).capabilities.supports(.assetModInstallV1) else {
+            throw SteamacBridgeError.requestFailed("Update Steamac to manage asset mods.")
+        }
+        let response = try request("asset-mod-disable \(appId)", endpoint: endpoint)
+        guard response == "asset-mod-disabled" else { throw SteamacBridgeError.malformedResponse(response) }
+    }
+
     func commitGuestPlugin(appId: UInt32, stage: String, filename: String,
                            endpoint: SteamacBridgeEndpoint) throws {
         try requireGuestFileAccess(endpoint: endpoint)
@@ -2457,9 +2508,17 @@ final class SteamacBridge {
             Darwin.close(fd)
         }
 
+        // 42A-1: Reloaded-II setup can take several minutes
+        // under Proton. Ordinary bridge requests retain their
+        // existing five-second receive timeout.
+        let receiveTimeoutSeconds: Int =
+            request.hasPrefix("reloadedii-setup ")
+                ? 600
+                : 5
+
         var timeout =
             timeval(
-                tv_sec: 5,
+                tv_sec: receiveTimeoutSeconds,
                 tv_usec: 0
             )
 

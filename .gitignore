@@ -16,3 +16,9 @@ DerivedData/
 *.bak.*
 *.pre-*.bak
 .41F-*-backup-*/
+
+# Local diagnostics and private recovery backups
+.patch-artifacts/
+.patch-backups/
+__pycache__/
+*.pyc
