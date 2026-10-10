@@ -4,7 +4,7 @@
 
 **BepisLoader 2.1** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
 
-[Download BepisLoader 2.1.0](https://github.com/KiwiSingh/BepisLoader/releases/tag/v2.1.0) · [All releases](https://github.com/KiwiSingh/BepisLoader/releases)
+[Download BepisLoader 2.2.0](https://github.com/KiwiSingh/BepisLoader/releases/tag/v2.2.0) · [All releases](https://github.com/KiwiSingh/BepisLoader/releases)
 
 ---
 
@@ -26,17 +26,17 @@
 
 ---
 
-## Asset profiles (development build 2.2.0)
+## Asset profiles (v2.2.0)
 
 The Steamac cockpit can add multiple asset mod folders and manage a persistent per-game profile. **Manage asset mods…** lists installed mods, enables/disables individual mods, removes them from the profile, and changes their priority. Mods lower in the list win conflicts; the Apply review lists every conflict and its winner.
 
-The matching Steamac development build must advertise `assetModProfilesV1` (Kiwi Build 6). Applying a profile validates stored packages, builds an immutable combined snapshot and atomically switches the guest's `.bepis-assets-active` link. Set the reported Steam Launch Options once to this stable path; subsequent profile changes do not require new launch options. Keep Steam open, close the game before applying, then restart it. All-disabled profiles load no replacements. Old package folders and previous snapshots are retained.
+The matching Steamac build must advertise `assetModProfilesV1` (Kiwi Build 6). Applying a profile validates stored packages, builds an immutable combined snapshot and atomically switches the guest's `.bepis-assets-active` link. Set the reported Steam Launch Options once to this stable path; subsequent profile changes do not require new launch options. Keep Steam open, close the game before applying, then restart it. All-disabled profiles load no replacements. Old package folders and previous snapshots are retained.
 
 Previous single-package installs are imported into the first profile **disabled** for explicit review. Enable the desired mods and replace the previous package-specific launch path with the stable setting once. The profile is stored in the SteamOS game folder, so closing BepisLoader does not lose it. Limits: 64 mods and 256 MiB of referenced package snapshots; active assets also retain the 4096-file/64-MiB-per-file limits.
 
 **Install Plugins…** in the Steamac cockpit accepts multiple BepInEx DLLs. The entire selection is snapshotted and checked for duplicate names and existing destinations before uploads begin. Every published DLL is verified; a late failure reports the successfully verified subset and stops without deleting it. The local bottle BepInEx picker already supports multiple files.
 
-## 🐸 What's new in v2.1.0
+## 🐸 What's new in v2.2.0
 
 - **Verified ARM64 SteamOS texture replacement:** the FMC Eyes Green mod rendered green eyes in the x64 Digimon Story Time Stranger game under Proton 11.0 ARM64. The native loader logged replacement of the exact eye texture; the result was confirmed visually in gameplay.
 - **Game-agnostic asset installation:** choose an extracted mod folder in the Steamac cockpit. BepisLoader selects the adapter, snapshots validated assets, uploads through `bepis.sock`, and requests guest-enforced publication. Steam can remain open; the game must be closed.
@@ -47,7 +47,7 @@ Previous single-package installs are imported into the first profile **disabled*
 
 ### Asset-mod setup and limits
 
-1. Use a Steamac build advertising `assetModInstallV1` ([Steamac Kiwi Build 5](https://github.com/KiwiSingh/steamac/releases/tag/v1.7.6-kiwi.5)). Older bridges reject installation safely; copying the macOS app alone does not update the guest agent.
+1. Use a Steamac build advertising `assetModInstallV1` ([Steamac Kiwi Build 6](https://github.com/KiwiSingh/steamac/releases/tag/v1.7.6-kiwi.6)). Older bridges reject installation safely; copying the macOS app alone does not update the guest agent.
 2. Close the game, leave Steam open, select it in BepisLoader's Steamac cockpit, and choose **Install asset mod…**. Select the extracted folder containing `ModConfig.json` and `dsts-loader/`.
 3. **Manual launch setting required:** copy the exact setting from BepisLoader's installation report into Steam → game Properties → Launch Options. It includes the installed asset path, executable hash, and `WINEDLLOVERRIDES='winmm=n,b'`. Preserve any existing options; conflicting Wine overrides need reconciliation. BepisLoader does not change Steam's settings automatically.
 4. Start the game with Steam's **Play** button. **Disable asset mods** parks the checked native adapter; assets are retained. Remove the BepisLoader launch setting when it is no longer needed.
@@ -58,7 +58,7 @@ Full Reloaded-II / managed-plugin initialization under ARM64 Proton remains unre
 
 ## 🛠 Installation & Usage
 
-1. **Download**: Download and extract [BepisLoader-v2.1.0-macOS-universal.zip](https://github.com/KiwiSingh/BepisLoader/releases/download/v2.1.0/BepisLoader-v2.1.0-macOS-universal.zip).
+1. **Download**: Download and extract [BepisLoader-v2.2.0-macOS-universal.zip](https://github.com/KiwiSingh/BepisLoader/releases/download/v2.2.0/BepisLoader-v2.2.0-macOS-universal.zip).
 2. **Select Game**: The app will scan your bottles automatically. If your game is on an external drive, use the **"+ Add Game → From Mac / External Drive"** option.
 3. **Install**: Click **"Install BepisLoader"**. It will download the correct BepInEx version, configure your Wine registry, and patch your compatibility layer's config files.
 4. **Add Mods**: Use **"+ Add Mod…"** to install `.dll` plugin files into the game's `BepInEx/plugins/` folder.
@@ -101,7 +101,7 @@ The resulting `BepisLoader.app` will be in `.build/release/`.
 
 ## 📝 Changelog
 
-### v2.1.0
+### v2.2.0
 - Added checked asset-only mod installation and disabling through the Steamac bridge.
 - Confirmed Digimon Story Time Stranger eye-texture replacement in ARM64 SteamOS / x64 Proton gameplay.
 - Included current Steamac recovery, provenance and installer work without weakening runtime safety gates.
@@ -146,4 +146,4 @@ Created by **Kiwi Singh** and the community. Special thanks to the BepInEx team 
 
 MBE CSV support now compiles the original game tables, merges changed cells in enabled-mod order, and appends `.ap.csv` rows afterward. Distinct cell edits coexist; later mods win competing edits. Requires Steamac with `assetMbeTablesV1`. Whole MBE replacements mixed with CSV edits to the same table are rejected for review. The native adapter resolves the managed stable folder before snapshotting its assets.
 
-DigiRide's actual package compiled nine MBE tables and passed isolated checked publication alongside both costume mods, including pinned loader migration. Chronomon and Parallelmon riding, plus the Kanan/Inori replacements, were confirmed together in live gameplay through the stable asset root. Development builds remain unpublished pending bundle audit.
+DigiRide's actual package compiled nine MBE tables and passed isolated checked publication alongside both costume mods, including pinned loader migration. Chronomon and Parallelmon riding, plus the Kanan/Inori replacements, were confirmed together in live gameplay through the stable asset root. App bundle audit passed.
