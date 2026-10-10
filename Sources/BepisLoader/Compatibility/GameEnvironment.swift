@@ -169,6 +169,7 @@ enum GameEnvironmentCapability:
     CaseIterable,
     Hashable
 {
+    case recoveryInventoryV1
     case guestFileAccess
     case guestCommandExecution
     case steamLibraryDiscovery

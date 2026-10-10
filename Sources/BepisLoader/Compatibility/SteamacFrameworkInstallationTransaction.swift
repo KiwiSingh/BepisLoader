@@ -127,6 +127,36 @@ struct SteamacInstallationTransaction: Codable, Hashable {
     ]
 }
 
+
+// 42A-12: Review-only declarative plan; not an executable transaction.
+// These operations describe requirements. They DO NOT assert that the
+// requirements have been met, or that an installer has bounded side effects.
+enum SteamacTransactionReviewPlan {
+    static func operations(for framework: SteamacInstallationFramework) -> [SteamacInstallationOperation] {
+        let label = framework == .reloadedII ? "Reloaded-II" : "BepInEx"
+        return [
+            SteamacInstallationOperation(kind: .acquirePayload,
+                description: "Identify the official \(label) release, immutable source URL and independently trusted release metadata; do not download during review.",
+                hasUnboundedSideEffects: false),
+            SteamacInstallationOperation(kind: .validatePayload,
+                description: "Before staging, independently verify the payload SHA-256 against authenticated release metadata and validate format, size and provenance.",
+                hasUnboundedSideEffects: false),
+            SteamacInstallationOperation(kind: .snapshotExistingFiles,
+                description: "Before any mutation, define and independently validate a restorable snapshot covering the AppID-scoped Proton prefix and all possible installer write locations. No snapshot is taken by this plan.",
+                hasUnboundedSideEffects: false),
+            SteamacInstallationOperation(kind: .stagePayload,
+                description: "Stage only after a separate authenticated authorization; verify staged bytes against the approved digest.",
+                hasUnboundedSideEffects: false),
+            SteamacInstallationOperation(kind: .verifyInventory,
+                description: "After separately authorized installation, re-query the AppID-scoped guest framework inventory; do not claim runtime injection or launch verification.",
+                hasUnboundedSideEffects: false),
+            SteamacInstallationOperation(kind: .restoreSnapshot,
+                description: "Before installation, independently test recovery and document rollback for every possible write location; do not perform restoration during review.",
+                hasUnboundedSideEffects: false)
+        ]
+    }
+}
+
 enum SteamacInstallationTransactionError: Error, Equatable {
     case invalidTransition(from: SteamacInstallationTransactionState,
                            to: SteamacInstallationTransactionState)

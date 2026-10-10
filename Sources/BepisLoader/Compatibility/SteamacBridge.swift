@@ -442,6 +442,8 @@ final class SteamacBridge {
             in parts.dropFirst(3)
         {
             switch raw {
+            case "recoveryInventoryV1":
+                capabilities.insert(.recoveryInventoryV1)
             case "guestFileAccess":
                 capabilities.insert(
                     .guestFileAccess
@@ -1220,6 +1222,29 @@ final class SteamacBridge {
         )
     }
 
+
+    // 42A-20: AppID-scoped no-follow inventory. No arbitrary path argument.
+    func recoveryInventory(appID: UInt32, scope: String,
+                           endpoint: SteamacBridgeEndpoint) throws -> SteamacGuestRecoveryInventory {
+        guard ["game", "prefix", "users", "userdata"].contains(scope),
+              try handshake(endpoint: endpoint).capabilities.supports(.recoveryInventoryV1) else {
+            throw SteamacBridgeError.requestFailed("Read-only recovery inventory capability unavailable")
+        }
+        let lines = try requestLines("recovery-inventory \(appID) \(scope)", endpoint: endpoint,
+                                     terminator: "recovery-inventory-end")
+        guard lines.first == "recovery-inventory-begin", lines.last == "recovery-inventory-end",
+              lines.count <= 500 else { throw SteamacBridgeError.malformedResponse("Invalid inventory framing") }
+        var data = Data()
+        for line in lines.dropFirst().dropLast() {
+            let prefix = "recovery-inventory-chunk "
+            guard line.hasPrefix(prefix), let chunk = Self.decodeHexData(String(line.dropFirst(prefix.count))) else {
+                throw SteamacBridgeError.malformedResponse("Invalid inventory chunk")
+            }
+            data.append(chunk)
+            guard data.count <= 1024 * 1024 else { throw SteamacBridgeError.responseTooLarge }
+        }
+        return try SteamacGuestRecoveryInventory.decode(data)
+    }
 
     // MARK: - Guest filesystem
 
@@ -2483,9 +2508,17 @@ final class SteamacBridge {
             Darwin.close(fd)
         }
 
+        // 42A-1: Reloaded-II setup can take several minutes
+        // under Proton. Ordinary bridge requests retain their
+        // existing five-second receive timeout.
+        let receiveTimeoutSeconds: Int =
+            request.hasPrefix("reloadedii-setup ")
+                ? 600
+                : 5
+
         var timeout =
             timeval(
-                tv_sec: 5,
+                tv_sec: receiveTimeoutSeconds,
                 tv_usec: 0
             )
 
