@@ -23,7 +23,8 @@ struct SteamacAssetModInstaller {
             guard AssetModPackage.hash(data) == expected else { throw AssetModPackage.failure("The bundled asset adapter failed its integrity check.") }
             payloads[file] = data
         }
-        let stage = game.installPath + "/.bepis-asset-stage-" + UUID().uuidString.lowercased()
+        let identifier = UUID().uuidString.lowercased()
+        let stage = game.installPath + "/.bepis-asset-stage-" + identifier
         try bridge.createGuestDirectory(stage, endpoint: endpoint)
         // Retain failed staging for review; never clean up an unknown guest path.
         for (key, data) in package.files.sorted(by: { $0.key < $1.key }) {
@@ -34,9 +35,10 @@ struct SteamacAssetModInstaller {
         for (key, data) in payloads { try bridge.writeGuestFile(data, to: stage + "/" + (key == "bepis-mvgl.asi" ? "adapter.payload" : "proxy.payload"), endpoint: endpoint) }
         try bridge.writeGuestFile(try package.manifest, to: stage + "/manifest.json", endpoint: endpoint)
         let root = try bridge.commitAssetMod(appId: game.appId, adapter: package.adapter.id, stage: stage, endpoint: endpoint)
+        guard root == game.installPath + "/.bepis-asset-mod-" + identifier + "/assets" else { throw AssetModPackage.failure("Guest publication returned an unexpected asset path; installation retained for review.") }
         let windowsRoot = "Z:" + root
         let quotedRoot = "'" + windowsRoot.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
         let options = "BEPIS_MVGL_ASSET_ROOT=\(quotedRoot) BEPIS_MVGL_EXE_SHA256=\(package.adapter.executableSHA256) WINEDLLOVERRIDES='winmm=n,b' %command%"
-        return "Installed \(package.name) (\(package.files.count) assets).\n\nOne-time setup: copy this into Steam → Properties → Launch Options, then use Play:\n\(options)\n\nPreserve your existing launch options when combining settings; an existing Wine override may conflict. Disable asset mods to stop loading this adapter."
+        return "Installed \(package.name) for \(game.name) (\(package.files.count) assets).\n\nOne-time setup: copy this into Steam → Properties → Launch Options, then use Play:\n\(options)\n\nPreserve your existing launch options when combining settings; an existing Wine override may conflict. Disable asset mods to stop loading this adapter."
     }
 }

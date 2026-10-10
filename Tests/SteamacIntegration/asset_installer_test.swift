@@ -1,6 +1,6 @@
 import Foundation
 extension Bundle { static var module: Bundle { .main } }
-struct SteamacGame { let appId: UInt32; let installPath: String }
+struct SteamacGame { let appId: UInt32; let installPath: String; var name: String { "Fixture" } }
 struct SteamacBridgeEndpoint {}
 struct GameInstall {}
 enum Architecture { case x64, x86 }
@@ -18,7 +18,7 @@ final class SteamacBridge {
     func protonRuntime(for appId: UInt32, endpoint: SteamacBridgeEndpoint) throws -> String? { calls.append("runtime"); return runtime ? "/proton" : nil }
     func createGuestDirectory(_ path: String, endpoint: SteamacBridgeEndpoint) throws { calls.append("mkdir") }
     func writeGuestFile(_ data: Data, to path: String, endpoint: SteamacBridgeEndpoint) throws { calls.append("upload"); uploaded[path] = data }
-    func commitAssetMod(appId: UInt32, adapter: String, stage: String, endpoint: SteamacBridgeEndpoint) throws -> String { calls.append("commit"); return "/game/.bepis-asset-mod-fixture/assets" }
+    func commitAssetMod(appId: UInt32, adapter: String, stage: String, endpoint: SteamacBridgeEndpoint) throws -> String { calls.append("commit"); return stage.replacingOccurrences(of: ".bepis-asset-stage-", with: ".bepis-asset-mod-") + "/assets" }
     func setAssetModEnabled(appId: UInt32, assetRoot: String?, endpoint: SteamacBridgeEndpoint) throws { calls.append("activate"); if activationFails { throw AssetModPackage.failure("activation blocked") } }
 }
 @main struct AssetInstallerTests {

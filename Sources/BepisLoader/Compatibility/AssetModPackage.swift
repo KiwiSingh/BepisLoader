@@ -32,8 +32,10 @@ struct AssetModPackage {
         let root = folder.standardizedFileURL
         guard root == root.resolvingSymlinksInPath() else { throw failure("Mod folders cannot redirect through symbolic links.") }
         let config = root.appendingPathComponent("ModConfig.json")
-        guard try config.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]).isSymbolicLink != true,
-              let info = try JSONSerialization.jsonObject(with: Data(contentsOf: config)) as? [String: Any],
+        let configValues = try config.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        guard configValues.isRegularFile == true, configValues.isSymbolicLink != true,
+              (configValues.fileSize ?? Int.max) <= 1024 * 1024,
+              let info = try JSONSerialization.jsonObject(with: boundedRead(config, maximum: 1024 * 1024)) as? [String: Any],
               let supported = info["SupportedAppId"] as? [String],
               supported.contains(where: { $0.lowercased() == adapter.executable.lowercased() }) else {
             throw failure("This mod does not declare support for the selected game.")
@@ -50,12 +52,16 @@ struct AssetModPackage {
             throw failure("This mod requires a dependency that the asset adapter cannot provide.")
         }
         let assets = root.appendingPathComponent("dsts-loader", isDirectory: true)
+        var enumerationError: Error?
         guard assets == assets.resolvingSymlinksInPath(),
-              let walker = fm.enumerator(at: assets, includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey], options: []) else {
+              let walker = fm.enumerator(at: assets, includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey], options: [], errorHandler: { _, error in enumerationError = error; return false }) else {
             throw failure("No supported asset folder was found.")
         }
         var files: [String: Data] = [:], seen = Set<String>(), total = 0
+        var entries = 0
         for case let file as URL in walker {
+            entries += 1
+            guard entries <= 8192 else { throw failure("Asset folder contains too many entries.") }
             let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey])
             guard values.isSymbolicLink != true else { throw failure("Symbolic links are not allowed in asset mods.") }
             if values.isDirectory == true { continue }
@@ -71,12 +77,20 @@ struct AssetModPackage {
             guard size >= 128, size <= 64 * 1024 * 1024, total + size <= 256 * 1024 * 1024, files.count < 4096 else {
                 throw failure("This asset mod exceeds the supported size limits.")
             }
-            let data = try Data(contentsOf: file)
+            let data = try boundedRead(file, maximum: size)
             guard data.count == size, data.starts(with: [0x44, 0x44, 0x53, 0x20]) else { throw failure("Invalid or changed DDS asset: \(key)") }
             files[key] = data; total += data.count
         }
+        if let error = enumerationError { throw error }
         guard !files.isEmpty else { throw failure("The mod contains no supported assets.") }
         return AssetModPackage(adapter: adapter, name: info["ModName"] as? String ?? folder.lastPathComponent, files: files)
+    }
+    private static func boundedRead(_ file: URL, maximum: Int) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: file)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: maximum + 1) ?? Data()
+        guard data.count <= maximum else { throw failure("Asset package changed or exceeds its size limit.") }
+        return data
     }
     static func failure(_ message: String) -> NSError { NSError(domain: "BepisAssetMod", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
 }

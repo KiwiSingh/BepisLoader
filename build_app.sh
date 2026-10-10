@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # 1. Build the release binary
-swift build -c release --cache-path "${BEPIS_BUILD_CACHE_PATH:-$PWD/.build/cache}"
+swift build -c release --arch arm64 --arch x86_64 --cache-path "${BEPIS_BUILD_CACHE_PATH:-$PWD/.build/cache}"
 
 # 2. Setup the .app structure
 APP_NAME="BepisLoader"
@@ -35,7 +35,9 @@ cat > "${BUNDLE_DIR}/Contents/Info.plist" <<EOF
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.4</string>
+    <string>2.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>210</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
