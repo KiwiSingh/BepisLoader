@@ -89,6 +89,10 @@ enum AssetModProfiles {
     }
     static func apply(_ profile: AssetModProfile, merge: AssetProfileMerge, game: SteamacGame,
                       endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared) throws -> String {
+        if merge.package.files.keys.contains(where: { $0.lowercased().hasSuffix(".csv") }),
+           !(try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetMbeTablesV1)) {
+            throw AssetModPackage.failure("These mods require MBE table compilation. Install the updated Steamac build, restart its VM, then refresh the connection.")
+        }
         let root = try SteamacAssetModInstaller.publish(merge.package, game: game, endpoint: endpoint,
             bridge: bridge, profile: JSONEncoder().encode(profile))
         return "Applied \(profile.mods.filter(\.enabled).count) enabled asset mods.\n\n" + SteamacAssetModInstaller.launchReport(merge.package, game: game, root: root)

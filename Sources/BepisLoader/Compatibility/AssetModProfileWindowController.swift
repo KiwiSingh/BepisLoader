@@ -12,9 +12,9 @@ final class AssetModProfileWindowController: NSWindowController, NSTableViewData
     init(profile: AssetModProfile, packages: [String: AssetModPackage], adapter: AssetModAdapter,
          apply: @escaping (AssetModProfile, AssetProfileMerge, AssetModProfileWindowController) -> Void) {
         self.profile = profile; self.packages = packages; self.adapter = adapter; self.apply = apply
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 480),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 540),
             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-        window.contentMinSize = NSSize(width: 620, height: 420)
+        window.contentMinSize = NSSize(width: 620, height: 480)
         window.title = "Manage asset mods"; window.isReleasedWhenClosed = false
         super.init(window: window)
         table.dataSource = self; table.delegate = self
@@ -28,7 +28,7 @@ final class AssetModProfileWindowController: NSWindowController, NSTableViewData
         applyButton.target = self; applyButton.action = #selector(applyChanges)
         actionButtons = [up, down, remove, applyButton]
         let actions = NSStackView(views: [up, down, remove, applyButton]); actions.spacing = 10
-        let help = NSTextField(wrappingLabelWithString: "Enable the mods you want. Mods lower in this list win when they replace the same asset. Close the game before applying changes; Steam can stay open. Stored packages are retained when removed.")
+        let help = NSTextField(wrappingLabelWithString: "Enable the mods you want. All enabled mods are combined. Lower mods win for the same replacement file; MBE CSV edits merge by cell, with lower mods winning competing edits. Close the game before applying changes; Steam can stay open. Stored packages are retained when removed.")
         let stack = NSStackView(views: [help, scroll, summary, actions]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false; window.contentView!.addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 16), stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -16), stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 16), stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -16), help.widthAnchor.constraint(equalTo: stack.widthAnchor), scroll.widthAnchor.constraint(equalTo: stack.widthAnchor), scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 200), summary.widthAnchor.constraint(equalTo: stack.widthAnchor)])
@@ -57,15 +57,19 @@ final class AssetModProfileWindowController: NSWindowController, NSTableViewData
     private func refresh() {
         table.reloadData()
         do { let merge = try AssetModProfiles.merge(profile, packages: packages, adapter: adapter)
-            summary.stringValue = "\(profile.mods.filter(\.enabled).count) enabled mods · \(merge.package.files.count) active assets · \(merge.conflicts.count) conflicts. Lower mods take priority."
+            summary.stringValue = "\(profile.mods.filter(\.enabled).count) enabled mods · \(merge.package.files.count) replacement inputs · \(merge.conflicts.count) conflicts. Priority only resolves overlapping replacements."
         } catch { summary.stringValue = error.localizedDescription }
     }
     @objc private func applyChanges() {
         do {
             let merge = try AssetModProfiles.merge(profile, packages: packages, adapter: adapter)
             let review = NSAlert(); review.messageText = "Apply this asset profile?"
-            let conflicts = merge.conflicts.sorted(by: { $0.key < $1.key }).map { "\($0.key): \($0.value.last!) wins over \($0.value.dropLast().joined(separator: ", "))" }.joined(separator: "\n")
-            review.informativeText = "\(profile.mods.filter(\.enabled).count) enabled mods, \(merge.package.files.count) active assets. Your stable Steam launch setting stays the same.\n\n" + (conflicts.isEmpty ? "No asset conflicts." : "Conflict choices from your load order are listed below. Change the order to choose different winners.")
+            let conflicts = merge.conflicts.sorted(by: { $0.key < $1.key }).map {
+                $0.key.lowercased().hasSuffix(".csv")
+                    ? "\($0.key): cell edits combine from \($0.value.joined(separator: ", ")); later mods win competing cell edits"
+                    : "\($0.key): \($0.value.last!) wins over \($0.value.dropLast().joined(separator: ", "))"
+            }.joined(separator: "\n")
+            review.informativeText = "\(profile.mods.filter(\.enabled).count) enabled mods, \(merge.package.files.count) replacement inputs. Your stable Steam launch setting stays the same.\n\n" + (conflicts.isEmpty ? "No asset conflicts." : "Conflict choices from your load order are listed below. Change the order to choose different winners.")
             if !conflicts.isEmpty {
                 let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 180)); text.isEditable = false; text.string = conflicts
                 let scroll = NSScrollView(frame: text.frame); scroll.documentView = text; scroll.hasVerticalScroller = true

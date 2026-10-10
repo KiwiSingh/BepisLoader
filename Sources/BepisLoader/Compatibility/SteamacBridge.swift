@@ -462,6 +462,8 @@ final class SteamacBridge {
             case "protonEnvironmentInspection":
                 capabilities.insert(.protonEnvironmentInspection)
 
+            case "assetMbeTablesV1":
+                capabilities.insert(.assetMbeTablesV1)
             case "assetModProfilesV1":
                 capabilities.insert(.assetModProfilesV1)
             case "assetModInstallV1":

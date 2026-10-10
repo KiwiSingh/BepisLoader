@@ -143,3 +143,7 @@ Created by **Kiwi Singh** and the community. Special thanks to the BepInEx team 
 ------------------------------------------------------------------------
 
 *Disclaimer: BepisLoader is not affiliated with PepsiCo, BepInEx, CodeWeavers, or GameSir. Stay hydrated.*
+
+MBE CSV support now compiles the original game tables, merges changed cells in enabled-mod order, and appends `.ap.csv` rows afterward. Distinct cell edits coexist; later mods win competing edits. Requires Steamac with `assetMbeTablesV1`. Whole MBE replacements mixed with CSV edits to the same table are rejected for review. The native adapter resolves the managed stable folder before snapshotting its assets.
+
+DigiRide's actual package compiled nine MBE tables and passed isolated checked publication alongside both costume mods, including pinned loader migration. Gameplay verification is pending; the previous Kanan/Inori pair was confirmed together using the direct snapshot path. Development builds remain unpublished pending bundle audit.

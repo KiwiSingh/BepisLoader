@@ -20,3 +20,7 @@ The last two fixtures used task directories on the VM's Zweidrive-backed disk. G
 Install matching Steamac, shut down and restart the VM with its bundled layer, then refresh BepisLoader. Add one or more extracted asset packages, review enablement/order, and apply. Copy the reported stable Steam Launch Options once. Use Manage asset mods for subsequent changes. Close the game before applying and restart afterward; Steam can stay open.
 
 Existing package-specific launch paths must be changed once. Verified previous packages are imported disabled for review. Profiles retain historical snapshots; automatic disk cleanup is not included.
+
+MBE CSV support now compiles the original game tables, merges changed cells in enabled-mod order, and appends `.ap.csv` rows afterward. Distinct cell edits coexist; later mods win competing edits. Requires Steamac with `assetMbeTablesV1`. Whole MBE replacements mixed with CSV edits to the same table are rejected for review. The native adapter resolves the managed stable folder before snapshotting its assets.
+
+DigiRide's actual package compiled nine MBE tables and passed isolated checked publication alongside both costume mods, including pinned loader migration. Gameplay verification is pending; the previous Kanan/Inori pair was confirmed together using the direct snapshot path. Development builds remain unpublished pending bundle audit.
