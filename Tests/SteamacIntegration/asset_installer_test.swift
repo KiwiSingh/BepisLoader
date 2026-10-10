@@ -24,13 +24,14 @@ final class SteamacBridge {
 @main struct AssetInstallerTests {
     static func main() throws {
         let payload = URL(fileURLWithPath: ProcessInfo.processInfo.environment["BEPIS_TEST_PAYLOADS"]!)
-        let package = AssetModPackage(adapter: AssetModAdapter.supported[0], name: "Eyes", files: ["app_0/images/eyes.dds": Data(repeating: 0, count: 128)])
+        let package = AssetModPackage(adapter: AssetModAdapter.supported[0], name: "Eyes", files: ["app_0/images/pc002a_b01l_01.img": Data([1,2,3])])
         let game = SteamacGame(appId: 1984270, installPath: "/game"), endpoint = SteamacBridgeEndpoint()
         let good = SteamacBridge()
         let report = try SteamacAssetModInstaller.install(package, game: game, endpoint: endpoint, bridge: good, payloadRoot: payload)
         precondition(report.contains("One-time setup") && good.calls.last == "commit")
         precondition(good.calls.firstIndex(of: "commit")! > good.calls.lastIndex(of: "upload")!)
         precondition(good.uploaded.count == 4)
+        precondition(good.uploaded.first(where: { $0.key.hasSuffix("/assets/app_0/images/pc002a_b01l_01.img") })?.value == Data([1,2,3]))
         for failure in 0..<4 {
             let b = SteamacBridge()
             if failure == 0 { b.supported = false }; if failure == 1 { b.installed = false }; if failure == 2 { b.architecture = .x86 }; if failure == 3 { b.runtime = false }

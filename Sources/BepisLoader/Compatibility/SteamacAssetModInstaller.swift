@@ -7,12 +7,20 @@ struct SteamacAssetModInstaller {
         "winmm.dll": "412d410eb6091fb483b150bea1b13f8aeb746be8c62802ea7e081fd15ea64b69"]
     static func install(_ package: AssetModPackage, game: SteamacGame,
                         endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared, payloadRoot: URL? = nil) throws -> String {
-        guard game.appId == package.adapter.appId,
-              try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetModInstallV1),
-              let install = try bridge.gameInstall(for: game, endpoint: endpoint),
-              try bridge.peArchitecture(for: install, endpoint: endpoint) == .x64,
-              try bridge.protonRuntime(for: game.appId, endpoint: endpoint) != nil else {
-            throw AssetModPackage.failure("This Steamac version or game does not support checked asset-mod installation.")
+        guard game.appId == package.adapter.appId else {
+            throw AssetModPackage.failure("This asset adapter does not support the selected game.")
+        }
+        guard try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetModInstallV1) else {
+            throw AssetModPackage.failure("The running SteamOS guest agent lacks assetModInstallV1. Update Steamac to Kiwi Build 5 and restart the VM using its bundled guest layer. If it is already updated, check for an older fx-bepis-agent service override.")
+        }
+        guard let install = try bridge.gameInstall(for: game, endpoint: endpoint) else {
+            throw AssetModPackage.failure("The selected game's executable could not be found.")
+        }
+        guard try bridge.peArchitecture(for: install, endpoint: endpoint) == .x64 else {
+            throw AssetModPackage.failure("This asset adapter requires a Windows x64 game executable.")
+        }
+        guard try bridge.protonRuntime(for: game.appId, endpoint: endpoint) != nil else {
+            throw AssetModPackage.failure("No Proton runtime is selected for this game. Select one in Steam's Compatibility settings and refresh the library.")
         }
         guard let resources = payloadRoot ?? Bundle.module.url(forResource: package.adapter.id, withExtension: nil, subdirectory: "AssetAdapters") else {
             throw AssetModPackage.failure("The bundled asset adapter is missing.")

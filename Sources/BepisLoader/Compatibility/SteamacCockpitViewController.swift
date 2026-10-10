@@ -105,7 +105,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         let assetActions = NSStackView(views: [installAssetButton, disableAssetButton])
         assetActions.orientation = .horizontal
         assetActions.spacing = 8
-        let stack = NSStackView(views: [title, status, details, refreshButton, scroll, assetActions, reportScroll, inspectPayloadButton, fetchReleaseButton, discoverProvenanceButton, recoveryRehearsalButton, recoveryScopeButton, discoverScopeButton, guestInventoryButton, installFrameworkButton, installPluginButton, launchButton])
+        let stack = NSStackView(views: [title, status, details, refreshButton, scroll, assetActions, reportScroll, installFrameworkButton, installPluginButton, launchButton])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
