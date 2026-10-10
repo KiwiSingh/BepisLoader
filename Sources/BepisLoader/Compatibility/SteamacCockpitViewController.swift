@@ -16,7 +16,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     private let refreshButton = NSButton(title: "Refresh connection & library", target: nil, action: nil)
     private let launchButton = NSButton(title: "Launch via Steamac", target: nil, action: nil)
     private let installFrameworkButton = NSButton(title: "Install BepInEx…", target: nil, action: nil)
-    private let installPluginButton = NSButton(title: "Install Plugin…", target: nil, action: nil)
+    private let installPluginButton = NSButton(title: "Install Plugins…", target: nil, action: nil)
     // 42A-14: local read-only inspection; NOT an installation or provenance approval.
     private let inspectPayloadButton = NSButton(title: "Inspect Local Payload…", target: nil, action: nil)
     private let fetchReleaseButton = NSButton(title: "Fetch Latest Reloaded-II (Host Only)…", target: nil, action: nil)
@@ -29,6 +29,8 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     private var recoveryRehearsalBusy = false
     private var releaseFetchBusy = false
     private let installAssetButton = NSButton(title: "Install asset mod…", target: nil, action: nil)
+    private var assetProfileWindow: AssetModProfileWindowController?
+    private let manageAssetButton = NSButton(title: "Manage asset mods…", target: nil, action: nil)
     private let disableAssetButton = NSButton(title: "Disable asset mods", target: nil, action: nil)
     private var pluginOperationBusy = false
     private var games: [SteamacGame] = []
@@ -82,6 +84,8 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         fetchReleaseButton.action = #selector(fetchLatestReloadedRelease)
         installAssetButton.target = self
         installAssetButton.action = #selector(installAssetMod)
+        manageAssetButton.target = self
+        manageAssetButton.action = #selector(manageAssetMods)
         disableAssetButton.target = self
         disableAssetButton.action = #selector(disableAssetMods)
         updatePluginButtons()
@@ -102,7 +106,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         reportScroll.borderType = .bezelBorder
         reportScroll.documentView = reportTextView
         reportScroll.heightAnchor.constraint(equalToConstant: 330).isActive = true
-        let assetActions = NSStackView(views: [installAssetButton, disableAssetButton])
+        let assetActions = NSStackView(views: [installAssetButton, manageAssetButton, disableAssetButton])
         assetActions.orientation = .horizontal
         assetActions.spacing = 8
         let stack = NSStackView(views: [title, status, details, refreshButton, scroll, assetActions, reportScroll, installFrameworkButton, installPluginButton, launchButton])
@@ -601,6 +605,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         launchButton.isEnabled = enabled
         installAssetButton.isEnabled = enabled
         disableAssetButton.isEnabled = enabled
+        manageAssetButton.isEnabled = enabled
         inspectPayloadButton.isEnabled = enabled
     }
 
@@ -672,103 +677,52 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
 
     @objc private func installPlugin() {
         guard let game = selectedPluginGame, let endpoint = activeEndpoint, !pluginOperationBusy else { return }
-        let picker = NSOpenPanel()
-        picker.title = "Select a BepInEx plugin DLL"
+        let picker = NSOpenPanel(); picker.title = "Select BepInEx plugin DLLs"
         picker.allowedContentTypes = [UTType(filenameExtension: "dll") ?? .data]
-        picker.canChooseDirectories = false
-        picker.allowsMultipleSelection = false
-        guard picker.runModal() == .OK, let file = picker.url else { return }
-        let filename = file.lastPathComponent
-        guard filename.lowercased().hasSuffix(".dll"),
-              filename.count > 4,
-              filename == (filename as NSString).lastPathComponent,
-              filename != ".", filename != "..",
-              !filename.contains("/"), !filename.contains("\\\\"),
-              !filename.contains("\n"), !filename.contains("\\r") else {
-            showReport("Refused: select a regular DLL with a safe filename.")
-            return
-        }
-        let data: Data
-        do {
-            let attrs = try FileManager.default.attributesOfItem(atPath: file.path)
-            guard (attrs[.type] as? FileAttributeType) == .typeRegular else {
-                showReport("Refused: plugin source must be a regular file.")
-                return
-            }
-            data = try Data(contentsOf: file)
-        } catch {
-            showReport("Cannot read plugin: \(error.localizedDescription)")
-            return
-        }
-        guard !data.isEmpty, data.count <= 64 * 1024 * 1024 else {
-            showReport("Refused: DLL must be nonempty and at most 64 MiB.")
-            return
-        }
-        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        guard game.installPath.hasPrefix("/"),
-              !game.installPath.split(separator: "/").contains("..") else {
-            showReport("Invalid guest installation path. No changes made.")
-            return
-        }
-        let destination = game.installPath + "/BepInEx/plugins/" + filename
-        let confirmation = NSAlert()
-        confirmation.messageText = "Review plugin destination"
-        confirmation.informativeText = "AppID \(game.appId)\nDestination: \(destination)\nSHA-256: \(digest)\nInstalls a user-selected, unverified DLL. Existing plugins are never overwritten."
-        confirmation.addButton(withTitle: "Install Plugin")
-        confirmation.addButton(withTitle: "Cancel")
+        picker.canChooseDirectories = false; picker.allowsMultipleSelection = true
+        guard picker.runModal() == .OK else { return }
+        let plugins: [BepInExPluginSnapshot]
+        do { plugins = try BepInExPluginBatch.inspect(picker.urls) }
+        catch { showReport("Cannot read selected plugins: \(error.localizedDescription)"); return }
+        guard game.installPath.hasPrefix("/"), !game.installPath.split(separator: "/").contains("..") else { showReport("Invalid guest installation path."); return }
+        let directory = game.installPath + "/BepInEx/plugins"
+        let confirmation = NSAlert(); confirmation.messageText = "Install \(plugins.count) plugins?"
+        confirmation.informativeText = plugins.map(\.filename).joined(separator: "\n") + "\n\nDestination: \(directory)\nUser-selected DLLs are unverified. Existing plugins will not be overwritten."
+        confirmation.addButton(withTitle: "Install Plugins"); confirmation.addButton(withTitle: "Cancel")
         guard confirmation.runModal() == .alertFirstButtonReturn else { return }
-        pluginOperationBusy = true
-        updatePluginButtons()
-        showReport("Uploading and verifying plugin…")
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
-            let message: String
+        pluginOperationBusy = true; updatePluginButtons(); showReport("Uploading and verifying selected plugins…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            var installed: [String] = []
+            var failed: String?
             do {
-                let directory = game.installPath + "/BepInEx/plugins"
-                let directoryInfo = try self.bridge.guestFileInfo(at: directory, endpoint: endpoint)
-                guard directoryInfo.kind == .directory else {
-                    throw NSError(domain: "BepisPlugin", code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: "BepInEx/plugins directory is missing"])
+                guard try self.bridge.guestFileInfo(at: directory, endpoint: endpoint).kind == .directory else { throw AssetModPackage.failure("BepInEx/plugins directory is missing.") }
+                // Preflight the entire batch before uploading any plugin.
+                for plugin in plugins {
+                    guard try self.bridge.guestFileInfo(at: directory + "/" + plugin.filename, endpoint: endpoint).kind == .missing else {
+                        throw AssetModPackage.failure("\(plugin.filename) already exists; no plugins uploaded.")
+                    }
                 }
-                let destinationInfo = try self.bridge.guestFileInfo(at: destination, endpoint: endpoint)
-                guard destinationInfo.kind == .missing else {
-                    throw NSError(domain: "BepisPlugin", code: 2,
-                        userInfo: [NSLocalizedDescriptionKey: "Plugin already exists; refusing overwrite"])
+                for plugin in plugins {
+                    do { try self.installPluginSnapshot(plugin, directory: directory, game: game, endpoint: endpoint); installed.append(plugin.filename) }
+                    catch { failed = "\(plugin.filename): \(error.localizedDescription)"; break }
                 }
-                let stage = directory + "/.bepis-stage-" + UUID().uuidString.lowercased() + ".tmp"
-                let stageInfo = try self.bridge.guestFileInfo(at: stage, endpoint: endpoint)
-                guard stageInfo.kind == .missing else {
-                    throw NSError(domain: "BepisPlugin", code: 3,
-                        userInfo: [NSLocalizedDescriptionKey: "Unexpected stage collision"])
-                }
-                // Random stage name; guest commit is the atomic, no-overwrite
-                // boundary. Stage cleanup is best-effort after failures.
-                defer { try? self.bridge.removeGuestItem(at: stage, endpoint: endpoint) }
-                try self.bridge.writeGuestFile(data, to: stage, endpoint: endpoint)
-                let staged = try self.bridge.readGuestFile(at: stage, endpoint: endpoint,
-                    maximumSize: UInt64(data.count))
-                guard staged == data else {
-                    throw NSError(domain: "BepisPlugin", code: 4,
-                        userInfo: [NSLocalizedDescriptionKey: "Staging readback mismatch"])
-                }
-                try self.bridge.commitGuestPlugin(appId: game.appId, stage: stage,
-                    filename: filename, endpoint: endpoint)
-                let installed = try self.bridge.readGuestFile(at: destination,
-                    endpoint: endpoint, maximumSize: UInt64(data.count))
-                guard installed == data else {
-                    throw NSError(domain: "BepisPlugin", code: 5,
-                        userInfo: [NSLocalizedDescriptionKey: "Published plugin readback mismatch"])
-                }
-                message = "Installed and verified \(filename) for AppID \(game.appId). SHA-256: \(digest). Runtime loading not yet verified."
-            } catch {
-                message = "Plugin installation not verified: \(error.localizedDescription). Inspect guest state before retrying."
-            }
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self.pluginOperationBusy = false
-                self.updatePluginButtons()
-                self.showReport(message)
-            }
+            } catch { failed = error.localizedDescription }
+            let report = "Installed and verified \(installed.count) of \(plugins.count) plugins.\n" + installed.joined(separator: "\n")
+                + (failed.map { "\nStopped: \($0). Successfully installed plugins are retained; inspect guest state before retrying." } ?? "\nRuntime loading has not been verified.")
+            DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(report) }
+        }
+    }
+    private func installPluginSnapshot(_ plugin: BepInExPluginSnapshot, directory: String, game: SteamacGame, endpoint: SteamacBridgeEndpoint) throws {
+        let stage = directory + "/.bepis-stage-" + UUID().uuidString.lowercased() + ".tmp"
+        guard try bridge.guestFileInfo(at: stage, endpoint: endpoint).kind == .missing else { throw AssetModPackage.failure("Unexpected staging collision.") }
+        defer { try? bridge.removeGuestItem(at: stage, endpoint: endpoint) }
+        try bridge.writeGuestFile(plugin.data, to: stage, endpoint: endpoint)
+        guard try bridge.readGuestFile(at: stage, endpoint: endpoint, maximumSize: UInt64(plugin.data.count)) == plugin.data else {
+            throw AssetModPackage.failure("Staging verification failed.")
+        }
+        try bridge.commitGuestPlugin(appId: game.appId, stage: stage, filename: plugin.filename, endpoint: endpoint)
+        guard try bridge.readGuestFile(at: directory + "/" + plugin.filename, endpoint: endpoint, maximumSize: UInt64(plugin.data.count)) == plugin.data else {
+            throw AssetModPackage.failure("Published plugin verification failed.")
         }
     }
 
@@ -991,51 +945,79 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
 
     @objc private func installAssetMod() {
         guard !pluginOperationBusy, let game = selectedPluginGame, let endpoint = activeEndpoint else { return }
-        guard AssetModAdapter.forGame(game.appId) != nil else {
-            showReport("No asset adapter is available for this game yet."); return
-        }
-        let panel = NSOpenPanel()
-        panel.title = "Choose an asset mod folder"
-        panel.message = "Select the extracted mod folder containing ModConfig.json. The game must be closed; Steam can stay open."
-        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
-        pluginOperationBusy = true; updatePluginButtons()
-        showReport("Checking asset mod…")
+        guard AssetModAdapter.forGame(game.appId) != nil else { showReport("No asset adapter is available for this game yet."); return }
+        let panel = NSOpenPanel(); panel.title = "Choose asset mod folders"
+        panel.message = "Select extracted mod folders containing ModConfig.json. Review enablement and conflicts before applying."
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = true
+        guard panel.runModal() == .OK else { return }; let folders = panel.urls
+        pluginOperationBusy = true; updatePluginButtons(); showReport("Checking asset mods and current profile…")
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                let package = try AssetModPackage.inspect(folder: folder, appId: game.appId)
+                let profile = try AssetModProfiles.load(game: game, endpoint: endpoint, bridge: self.bridge)
+                let packages = try folders.map { try AssetModPackage.inspect(folder: $0, appId: game.appId) }
+                var cache = try AssetModProfiles.packages(profile, game: game, endpoint: endpoint, bridge: self.bridge)
+                guard cache.values.reduce(0, { $0 + $1.totalBytes }) + packages.reduce(0, { $0 + $1.totalBytes }) <= 256 * 1024 * 1024 else {
+                    throw AssetModPackage.failure("The stored packages in this profile would exceed 256 MiB. Remove unused mods from the profile first.")
+                }
                 DispatchQueue.main.async {
-                    let review = NSAlert()
-                    review.messageText = "Install \(package.name) for \(game.name)?"
-                    review.informativeText = "\(package.files.count) assets · \(package.totalBytes) bytes. BepisLoader will install the assets and show a one-time Steam launch setting to copy. Existing game files are not replaced."
-                    review.addButton(withTitle: "Install"); review.addButton(withTitle: "Cancel")
-                    guard review.runModal() == .alertFirstButtonReturn else {
-                        self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport("Asset installation cancelled."); return
-                    }
+                    let review = NSAlert(); review.messageText = "Add \(packages.count) asset mods?"
+                    review.informativeText = packages.map { "\($0.name): \($0.files.count) assets" }.joined(separator: "\n") + "\n\nPackages are stored in the guest. You will review the combined profile before activation."
+                    review.addButton(withTitle: "Add mods"); review.addButton(withTitle: "Cancel")
+                    guard review.runModal() == .alertFirstButtonReturn else { self.pluginOperationBusy = false; self.updatePluginButtons(); return }
                     DispatchQueue.global(qos: .userInitiated).async {
-                        let result: String
-                        do { result = try SteamacAssetModInstaller.install(package, game: game, endpoint: endpoint, bridge: self.bridge) }
-                        catch { result = "Asset installation stopped: \(error.localizedDescription)" }
-                        DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(result) }
+                        do {
+                            let next = try AssetModProfiles.add(packages, to: profile, game: game, endpoint: endpoint, bridge: self.bridge)
+                            for (mod, package) in zip(next.mods.dropFirst(profile.mods.count), packages) { cache[mod.id] = package }
+                            DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.presentAssetProfile(next, packages: cache, game: game, endpoint: endpoint) }
+                        } catch { self.assetOperationFailed(error) }
                     }
                 }
-            } catch {
-                let message = error.localizedDescription
-                DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport("Asset mod rejected: \(message)") }
-            }
+            } catch { self.assetOperationFailed(error) }
         }
     }
-
+    @objc private func manageAssetMods() {
+        guard !pluginOperationBusy, let game = selectedPluginGame, let endpoint = activeEndpoint else { return }
+        pluginOperationBusy = true; updatePluginButtons(); showReport("Loading installed asset mods…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let profile = try AssetModProfiles.load(game: game, endpoint: endpoint, bridge: self.bridge)
+                let packages = try AssetModProfiles.packages(profile, game: game, endpoint: endpoint, bridge: self.bridge)
+                DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.presentAssetProfile(profile, packages: packages, game: game, endpoint: endpoint) }
+            } catch { self.assetOperationFailed(error) }
+        }
+    }
+    private func presentAssetProfile(_ profile: AssetModProfile, packages: [String: AssetModPackage], game: SteamacGame, endpoint: SteamacBridgeEndpoint) {
+        guard let adapter = AssetModAdapter.forGame(game.appId) else { return }
+        assetProfileWindow?.close()
+        let controller = AssetModProfileWindowController(profile: profile, packages: packages, adapter: adapter) { next, merge, window in
+            guard !self.pluginOperationBusy else { window.allowRetry(); return }
+            self.pluginOperationBusy = true; self.updatePluginButtons(); self.showReport("Applying combined asset profile…")
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let report = try AssetModProfiles.apply(next, merge: merge, game: game, endpoint: endpoint, bridge: self.bridge)
+                    DispatchQueue.main.async { window.close(); self.assetProfileWindow = nil; self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(report) }
+                } catch { DispatchQueue.main.async { window.allowRetry() }; self.assetOperationFailed(error) }
+            }
+        }
+        assetProfileWindow = controller; controller.showWindow(nil)
+    }
+    private func assetOperationFailed(_ error: Error) {
+        let message = error.localizedDescription
+        DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport("Asset operation stopped: \(message)") }
+    }
     @objc private func disableAssetMods() {
         guard !pluginOperationBusy, let game = selectedPluginGame, let endpoint = activeEndpoint else { return }
         pluginOperationBusy = true; updatePluginButtons()
         DispatchQueue.global(qos: .userInitiated).async {
-            let message: String
             do {
-                try self.bridge.disableAssetMods(appId: game.appId, endpoint: endpoint)
-                message = "Asset mods disabled. Installed assets are retained. Remove the BepisLoader setting from Steam Launch Options if you no longer need it."
-            } catch { message = "Could not disable asset mods: \(error.localizedDescription)" }
-            DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(message) }
+                var profile = try AssetModProfiles.load(game: game, endpoint: endpoint, bridge: self.bridge)
+                let packages = try AssetModProfiles.packages(profile, game: game, endpoint: endpoint, bridge: self.bridge)
+                for index in profile.mods.indices { profile.mods[index].enabled = false }
+                guard let adapter = AssetModAdapter.forGame(game.appId) else { throw AssetModPackage.failure("Unsupported asset adapter.") }
+                let merge = try AssetModProfiles.merge(profile, packages: packages, adapter: adapter)
+                let report = try AssetModProfiles.apply(profile, merge: merge, game: game, endpoint: endpoint, bridge: self.bridge)
+                DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(report) }
+            } catch { self.assetOperationFailed(error) }
         }
     }
 
