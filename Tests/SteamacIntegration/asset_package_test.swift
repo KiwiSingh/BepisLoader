@@ -35,6 +35,16 @@ import Foundation
         try fm.removeItem(at: root.appendingPathComponent("dsts-loader/app_0/images/plugin.dll"))
         try Data().write(to: asset); reject()
         precondition(package.files["app_0/images/eyes.dds"] == bytes, "Snapshot changed after source edit")
+        try fm.removeItem(at: root.appendingPathComponent("dsts-loader"))
+        config["ModDependencies"] = ["DSTS.ModLoader", "DSTS.RyoFramework", "Ryo.Reloaded"]; try save()
+        let music = root.appendingPathComponent("Ryo/Digimon Story Time Stranger/bgm/bgm801.acb/bgm801.cue")
+        try fm.createDirectory(at: music, withIntermediateDirectories: true)
+        try Data([1,2,3]).write(to: music.appendingPathComponent("Track name.hca"))
+        try Data("volume: 0.3".utf8).write(to: music.appendingPathComponent("Track name.yaml"))
+        try Data([1]).write(to: music.appendingPathComponent(".DS_Store"))
+        let audio = try AssetModPackage.inspect(folder: root, appId: 1984270)
+        precondition(audio.files.count == 2 && audio.files["Ryo/Digimon Story Time Stranger/bgm/bgm801.acb/bgm801.cue/Track name.hca"] == Data([1,2,3]))
+        config["ModDependencies"] = ["unknown-code-loader"]; try save(); reject()
         print("PASS: exact IMG filenames, distinct IMG/DDS filenames, raw IMG bytes, valid DDS, manifest, unsupported game, code payload, unknown dependency, wrong game, symlink, arbitrary extensions, empty asset rejection, immutable snapshot")
     }
 }

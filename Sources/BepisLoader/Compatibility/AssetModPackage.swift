@@ -47,26 +47,35 @@ struct AssetModPackage {
         }
         guard info["ModDependencies"] == nil || info["ModDependencies"] is [String] else { throw failure("Invalid mod dependency metadata.") }
         let dependencies = info["ModDependencies"] as? [String] ?? []
-        let assetDependencies: Set<String> = ["DSTS.ModLoader", "MVGL.FileLoader.Reloaded", "Reloaded.Memory.SigScan.ReloadedII", "reloaded.sharedlib.hooks"]
+        let audioRoot = root.appendingPathComponent("Ryo/Digimon Story Time Stranger/bgm", isDirectory: true)
+        let hasAudio = fm.fileExists(atPath: audioRoot.path)
+        var assetDependencies: Set<String> = ["DSTS.ModLoader", "MVGL.FileLoader.Reloaded", "Reloaded.Memory.SigScan.ReloadedII", "reloaded.sharedlib.hooks"]
+        if hasAudio { assetDependencies.formUnion(["DSTS.RyoFramework", "Ryo.Reloaded", "SharedScans.Reloaded"]) }
         guard dependencies.allSatisfy({ assetDependencies.contains($0) }), info["IsLibrary"] as? Bool != true else {
             throw failure("This mod requires a dependency that the asset adapter cannot provide.")
         }
-        let assets = root.appendingPathComponent("dsts-loader", isDirectory: true)
+        let loose = root.appendingPathComponent("dsts-loader", isDirectory: true)
+        var roots: [(URL, String)] = []
+        if fm.fileExists(atPath: loose.path) { roots.append((loose, "")) }
+        if hasAudio { roots.append((audioRoot, "Ryo/Digimon Story Time Stranger/bgm/")) }
+        guard !roots.isEmpty else { throw failure("No supported asset or music folder was found.") }
+        var files: [String: Data] = [:], seen = Set<String>(), total = 0
+        var entries = 0
+        for (assets, prefix) in roots {
         var enumerationError: Error?
         guard assets == assets.resolvingSymlinksInPath(),
               let walker = fm.enumerator(at: assets, includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey], options: [], errorHandler: { _, error in enumerationError = error; return false }) else {
-            throw failure("No supported asset folder was found.")
+            throw failure("Mod asset folders cannot redirect through symbolic links.")
         }
-        var files: [String: Data] = [:], seen = Set<String>(), total = 0
-        var entries = 0
         for case let file as URL in walker {
+            if !prefix.isEmpty && file.lastPathComponent == ".DS_Store" { continue }
             entries += 1
             guard entries <= 8192 else { throw failure("Asset folder contains too many entries.") }
             let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey])
             guard values.isSymbolicLink != true else { throw failure("Symbolic links are not allowed in asset mods.") }
             if values.isDirectory == true { continue }
             guard values.isRegularFile == true, file.path.hasPrefix(assets.path + "/") else { throw failure("Only regular asset files are supported.") }
-            let key = String(file.path.dropFirst(assets.path.count + 1))
+            let key = prefix + String(file.path.dropFirst(assets.path.count + 1))
             guard key.utf8.count < 1024, key.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value < 127 }),
                   !key.contains(":"), !key.contains("\\"),
                   key.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
@@ -82,6 +91,7 @@ struct AssetModPackage {
             files[key] = data; total += data.count
         }
         if let error = enumerationError { throw error }
+        }
         guard !files.isEmpty else { throw failure("The mod contains no supported assets.") }
         return AssetModPackage(adapter: adapter, name: info["ModName"] as? String ?? folder.lastPathComponent, files: files)
     }
