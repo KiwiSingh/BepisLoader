@@ -158,3 +158,9 @@ DigiRide's actual package compiled nine MBE tables and passed isolated checked p
 ### Faster asset-mod management
 
 The asset-mod manager reads the persisted JSON profile and package manifests to display installed mods, asset counts and priority conflicts. Opening it no longer downloads every replacement asset from the VM. Applying changes still reads and verifies the stored files and publishes a checked combined profile. Reopening the manager reads the current JSON metadata, so changes made by another client are visible.
+
+### ReShade launch settings
+
+In the Steamac game view, choose **Launch options…**, check **Include ReShade (Direct3D / DXGI)**, and paste the value of an existing `WINEDLLOVERRIDES` entry if another loader needs it. BepisLoader presents one combined entry with `dxgi=n,b`, `d3dcompiler_47=n,b`, and the other loader overrides. An active managed asset profile also includes its stable root, executable hash and `winmm=n,b`. Keep other environment settings and command arguments when copying the result into Steam. Choices are remembered for the current BepisLoader session.
+
+These options require an already installed ReShade DXGI runtime and Microsoft shader compiler. They do not install ReShade or establish support for arbitrary Reloaded-II plugins. Digimon was tested with ReShade 6.3.3 and ShaderToggler 1.2.1: all 21 included effects compiled after adding the Microsoft x64 compiler. Shader packs using a different graphics API need separate integration.

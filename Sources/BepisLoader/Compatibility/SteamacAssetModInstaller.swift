@@ -63,10 +63,10 @@ struct SteamacAssetModInstaller {
         guard root == (profile == nil ? game.installPath + "/.bepis-asset-mod-" + identifier + "/assets" : game.installPath + "/.bepis-assets-active") else { throw AssetModPackage.failure("Guest publication returned an unexpected asset path; installation retained for review.") }
         return root
     }
-    static func launchReport(_ package: AssetModPackage, game: SteamacGame, root: String) -> String {
-        let windowsRoot = "Z:" + root
-        let quotedRoot = "'" + windowsRoot.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-        let options = "BEPIS_MVGL_ASSET_ROOT=\(quotedRoot) BEPIS_MVGL_EXE_SHA256=\(package.adapter.executableSHA256) WINEDLLOVERRIDES='winmm=n,b' %command%"
-        return "Installed \(package.name) for \(game.name) (\(package.files.count) assets).\n\nOne-time setup: copy this into Steam → Properties → Launch Options, then use Play:\n\(options)\n\nPreserve your existing launch options when combining settings; an existing Wine override may conflict. This path stays the same when managing asset mods. Close the game before applying changes, then restart it."
+    static func launchReport(_ package: AssetModPackage, game: SteamacGame, root: String, reshade: Bool = false, existingOverrides: String = "") -> String {
+        let options: String
+        do { options = try SteamacLaunchOptions.make(assetRoot: root, executableHash: package.adapter.executableSHA256, reshade: reshade, existingOverrides: existingOverrides) }
+        catch { return "Assets installed. Launch options could not be composed: \(error.localizedDescription)" }
+        return "Installed \(package.name) for \(game.name) (\(package.files.count) assets).\n\nOne-time setup: copy this into Steam → Properties → Launch Options, then use Play:\n\(options)\n\nUse one WINEDLLOVERRIDES assignment for all loaders. Use Launch options… to include ReShade and merge other loader overrides. Preserve other existing launch settings. This path stays the same when managing asset mods. Close the game before applying changes, then restart it."
     }
 }
