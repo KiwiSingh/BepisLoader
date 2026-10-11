@@ -64,7 +64,7 @@ enum AssetModProfiles {
             conflicts: owners.filter { $0.value.count > 1 })
     }
     static func packages(_ profile: AssetModProfile, game: SteamacGame, endpoint: SteamacBridgeEndpoint,
-                         bridge: SteamacBridge = .shared) throws -> [String: AssetModPackage] {
+                         bridge: SteamacBridge = .shared, metadataOnly: Bool = false) throws -> [String: AssetModPackage] {
         guard let adapter = AssetModAdapter.forGame(game.appId) else { throw AssetModPackage.failure("Unsupported asset adapter.") }
         var result: [String: AssetModPackage] = [:], total = 0
         for mod in profile.mods {
@@ -80,6 +80,9 @@ enum AssetModProfiles {
                       key.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
                     throw AssetModPackage.failure("Invalid stored asset path.")
                 }
+                // Inventory uses the stored JSON manifest; payloads are fetched and
+                // verified only for publication, never merely to display the manager.
+                if metadataOnly { files[key] = Data(); continue }
                 let bytes = try bridge.readGuestFile(at: mod.root + "/" + key, endpoint: endpoint, maximumSize: 64 * 1024 * 1024)
                 total += bytes.count
                 guard total <= 256 * 1024 * 1024, AssetModPackage.hash(bytes) == hash else {

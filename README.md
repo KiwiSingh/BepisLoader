@@ -154,3 +154,7 @@ Created by **Kiwi Singh** and the community. Special thanks to the BepInEx team 
 MBE CSV support now compiles the original game tables, merges changed cells in enabled-mod order, and appends `.ap.csv` rows afterward. Distinct cell edits coexist; later mods win competing edits. Requires Steamac with `assetMbeTablesV1`. Whole MBE replacements mixed with CSV edits to the same table are rejected for review. The native adapter resolves the managed stable folder before snapshotting its assets.
 
 DigiRide's actual package compiled nine MBE tables and passed isolated checked publication alongside both costume mods, including pinned loader migration. Chronomon and Parallelmon riding, plus the Kanan/Inori replacements, were confirmed together in live gameplay through the stable asset root. App bundle audit passed.
+
+### Faster asset-mod management
+
+The asset-mod manager reads the persisted JSON profile and package manifests to display installed mods, asset counts and priority conflicts. Opening it no longer downloads every replacement asset from the VM. Applying changes still reads and verifies the stored files and publishes a checked combined profile. Reopening the manager reads the current JSON metadata, so changes made by another client are visible.
