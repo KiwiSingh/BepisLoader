@@ -1,0 +1,9 @@
+# Music profiles (development 2.3.0)
+
+The asset-mod importer now accepts the supported Ryo BGM folder layout and its data-only dependencies. It keeps raw HCA/YAML names and bytes, ignores macOS folder metadata, and combines music with the existing texture/MBE profile. Distinct tracks for a cue form a random playlist; same-file replacements and settings follow profile priority.
+
+Requires Steamac Kiwi Build 7 with `assetAudioBanksV1`. The guest compiles original sound banks, and the native adapter replaces matching memory-loaded banks. Existing stable launch options remain valid. Current support covers unencrypted HCA and volume YAML in single-cue memory-backed BGM banks; arbitrary Ryo runtime plugins/settings are not supported.
+
+Music YAML controls track volume. A value of `0.3` requests 30%, so a track may play more quietly than expected. A separate settings-only package can override the exact YAML paths through the existing profile conflict review; use `volume: 1.0` for full volume. Keep the original music package enabled so its HCA tracks remain available. Disable the override package to restore the original settings. The downloaded source package need not be edited.
+
+Tests: package parsing and immutable snapshots, settings-only import, installer preflight, ARM64 compiler bank composition/input rejection/alignment, full 46-track/17-bank conversion, isolated Proton callback replacement/fallback, and checked combined profile publication passed. An in-game comparison isolated required ADX2 alignment. The user confirmed classic Looming Threat playback, comfortable volume and clean looping with a separate full-volume settings overlay. All other music/asset hashes stayed unchanged. This confirmation is specific to the tested cue; it does not attest to every track or repeated random selection. Builds remain unpublished pending fresh bundle audit.

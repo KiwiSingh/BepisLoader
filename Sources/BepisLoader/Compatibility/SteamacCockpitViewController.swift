@@ -981,7 +981,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let profile = try AssetModProfiles.load(game: game, endpoint: endpoint, bridge: self.bridge)
-                let packages = try AssetModProfiles.packages(profile, game: game, endpoint: endpoint, bridge: self.bridge)
+                let packages = try AssetModProfiles.packages(profile, game: game, endpoint: endpoint, bridge: self.bridge, metadataOnly: true)
                 DispatchQueue.main.async { self.pluginOperationBusy = false; self.updatePluginButtons(); self.presentAssetProfile(profile, packages: packages, game: game, endpoint: endpoint) }
             } catch { self.assetOperationFailed(error) }
         }
@@ -989,11 +989,13 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     private func presentAssetProfile(_ profile: AssetModProfile, packages: [String: AssetModPackage], game: SteamacGame, endpoint: SteamacBridgeEndpoint) {
         guard let adapter = AssetModAdapter.forGame(game.appId) else { return }
         assetProfileWindow?.close()
-        let controller = AssetModProfileWindowController(profile: profile, packages: packages, adapter: adapter) { next, merge, window in
+        let controller = AssetModProfileWindowController(profile: profile, packages: packages, adapter: adapter) { next, _, window in
             guard !self.pluginOperationBusy else { window.allowRetry(); return }
             self.pluginOperationBusy = true; self.updatePluginButtons(); self.showReport("Applying combined asset profile…")
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
+                    let verifiedPackages = try AssetModProfiles.packages(next, game: game, endpoint: endpoint, bridge: self.bridge)
+                    let merge = try AssetModProfiles.merge(next, packages: verifiedPackages, adapter: adapter)
                     let report = try AssetModProfiles.apply(next, merge: merge, game: game, endpoint: endpoint, bridge: self.bridge)
                     DispatchQueue.main.async { window.close(); self.assetProfileWindow = nil; self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(report) }
                 } catch { DispatchQueue.main.async { window.allowRetry() }; self.assetOperationFailed(error) }

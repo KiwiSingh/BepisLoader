@@ -4,7 +4,7 @@ struct SteamacGame { let appId: UInt32; let installPath: String; var name: Strin
 struct SteamacBridgeEndpoint {}
 struct GameInstall {}
 enum Architecture { case x64, x86 }
-enum Capability { case assetModInstallV1, assetModProfilesV1, assetMbeTablesV1 }
+enum Capability { case assetModInstallV1, assetModProfilesV1, assetMbeTablesV1, assetAudioBanksV1 }
 struct Capabilities { var enabled: Bool; func supports(_ c: Capability) -> Bool { enabled } }
 struct Hello { let capabilities: Capabilities }
 final class SteamacBridge {

@@ -64,7 +64,7 @@ enum AssetModProfiles {
             conflicts: owners.filter { $0.value.count > 1 })
     }
     static func packages(_ profile: AssetModProfile, game: SteamacGame, endpoint: SteamacBridgeEndpoint,
-                         bridge: SteamacBridge = .shared) throws -> [String: AssetModPackage] {
+                         bridge: SteamacBridge = .shared, metadataOnly: Bool = false) throws -> [String: AssetModPackage] {
         guard let adapter = AssetModAdapter.forGame(game.appId) else { throw AssetModPackage.failure("Unsupported asset adapter.") }
         var result: [String: AssetModPackage] = [:], total = 0
         for mod in profile.mods {
@@ -80,6 +80,9 @@ enum AssetModProfiles {
                       key.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
                     throw AssetModPackage.failure("Invalid stored asset path.")
                 }
+                // Inventory uses the stored JSON manifest; payloads are fetched and
+                // verified only for publication, never merely to display the manager.
+                if metadataOnly { files[key] = Data(); continue }
                 let bytes = try bridge.readGuestFile(at: mod.root + "/" + key, endpoint: endpoint, maximumSize: 64 * 1024 * 1024)
                 total += bytes.count
                 guard total <= 256 * 1024 * 1024, AssetModPackage.hash(bytes) == hash else {
@@ -93,6 +96,10 @@ enum AssetModProfiles {
     }
     static func apply(_ profile: AssetModProfile, merge: AssetProfileMerge, game: SteamacGame,
                       endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared) throws -> String {
+        if merge.package.files.keys.contains(where: { $0.hasPrefix("Ryo/Digimon Story Time Stranger/bgm/") }),
+           !(try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetAudioBanksV1)) {
+            throw AssetModPackage.failure("These mods require music-bank compilation. Update Steamac, restart its VM, then refresh the connection.")
+        }
         if merge.package.files.keys.contains(where: isTableCSV),
            !(try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetMbeTablesV1)) {
             throw AssetModPackage.failure("These mods require MBE table compilation. Install the updated Steamac build, restart its VM, then refresh the connection.")
