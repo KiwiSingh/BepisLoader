@@ -164,3 +164,9 @@ The asset-mod manager reads the persisted JSON profile and package manifests to 
 In the Steamac game view, choose **Launch options…**, check **Include ReShade (Direct3D / DXGI)**, and paste the value of an existing `WINEDLLOVERRIDES` entry if another loader needs it. BepisLoader presents one combined entry with `dxgi=n,b`, `d3dcompiler_47=n,b`, and the other loader overrides. An active managed asset profile also includes its stable root, executable hash and `winmm=n,b`. Keep other environment settings and command arguments when copying the result into Steam. Choices are remembered for the current BepisLoader session.
 
 These options require an already installed ReShade DXGI runtime and Microsoft shader compiler. They do not install ReShade or establish support for arbitrary Reloaded-II plugins. Digimon was tested with ReShade 6.3.3 and ShaderToggler 1.2.1: all 21 included effects compiled after adding the Microsoft x64 compiler. Shader packs using a different graphics API need separate integration.
+
+### Larger combined profiles and additional data mods
+
+Combined asset profiles support up to **1 GiB** of stored inputs and published assets, with 64 mods and 4,096 replacement files. Individual imported packages remain limited to 256 MiB and individual files to 64 MiB. This requires the matching updated Steamac guest; older builds reject profiles above 256 MiB. Finder `.DS_Store` metadata is excluded from asset imports.
+
+Skip Opening Logos uses an animation replacement plus opening-flow table edits. Water Recolor adds new Digimon slots through model, texture, animation, evolution and localized text assets, including appended table rows. Both use the existing data-only adapter and table compiler. The full seven-mod fixture compiled 84 tables and 17 music banks; gameplay verification is pending.

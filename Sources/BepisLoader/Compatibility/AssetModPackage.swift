@@ -68,7 +68,7 @@ struct AssetModPackage {
             throw failure("Mod asset folders cannot redirect through symbolic links.")
         }
         for case let file as URL in walker {
-            if !prefix.isEmpty && file.lastPathComponent == ".DS_Store" { continue }
+            if file.lastPathComponent == ".DS_Store" { continue }
             entries += 1
             guard entries <= 8192 else { throw failure("Asset folder contains too many entries.") }
             let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey])

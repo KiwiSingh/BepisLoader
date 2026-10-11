@@ -962,8 +962,8 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
                 let profile = try AssetModProfiles.load(game: game, endpoint: endpoint, bridge: self.bridge)
                 let packages = try folders.map { try AssetModPackage.inspect(folder: $0, appId: game.appId) }
                 var cache = try AssetModProfiles.packages(profile, game: game, endpoint: endpoint, bridge: self.bridge)
-                guard cache.values.reduce(0, { $0 + $1.totalBytes }) + packages.reduce(0, { $0 + $1.totalBytes }) <= 256 * 1024 * 1024 else {
-                    throw AssetModPackage.failure("The stored packages in this profile would exceed 256 MiB. Remove unused mods from the profile first.")
+                guard cache.values.reduce(0, { $0 + $1.totalBytes }) + packages.reduce(0, { $0 + $1.totalBytes }) <= 1024 * 1024 * 1024 else {
+                    throw AssetModPackage.failure("The stored packages in this profile would exceed 1 GiB. Remove unused mods from the profile first.")
                 }
                 DispatchQueue.main.async {
                     let review = NSAlert(); review.messageText = "Add \(packages.count) asset mods?"

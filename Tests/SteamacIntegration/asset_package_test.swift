@@ -12,6 +12,8 @@ import Foundation
         try save()
         let asset = root.appendingPathComponent("dsts-loader/app_0/images/eyes.dds")
         var bytes = Data([0x44,0x44,0x53,0x20]); bytes.append(Data(repeating: 0, count: 124)); try bytes.write(to: asset)
+        try Data([1]).write(to: root.appendingPathComponent("dsts-loader/.DS_Store"))
+        try Data([2]).write(to: root.appendingPathComponent("dsts-loader/app_0/images/.DS_Store"))
         let package = try AssetModPackage.inspect(folder: root, appId: 1984270)
         precondition(package.files.count == 1 && package.totalBytes == 128)
         let manifestObject = try JSONSerialization.jsonObject(with: package.manifest)

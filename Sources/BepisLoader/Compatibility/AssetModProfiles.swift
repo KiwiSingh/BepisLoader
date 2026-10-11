@@ -57,7 +57,7 @@ enum AssetModProfiles {
                 owners[normalized, default: []].append(duplicateNames.contains(mod.name) ? "\(mod.name) (\(mod.id.prefix(8)))" : mod.name)
             }
         }
-        guard files.count <= 4096, files.values.reduce(0, { $0 + $1.count }) <= 256 * 1024 * 1024 else {
+        guard files.count <= 4096, files.values.reduce(0, { $0 + $1.count }) <= 1024 * 1024 * 1024 else {
             throw AssetModPackage.failure("The combined active assets exceed the supported limits.")
         }
         return AssetProfileMerge(package: AssetModPackage(adapter: adapter, name: "Active asset mods", files: files),
@@ -85,7 +85,7 @@ enum AssetModProfiles {
                 if metadataOnly { files[key] = Data(); continue }
                 let bytes = try bridge.readGuestFile(at: mod.root + "/" + key, endpoint: endpoint, maximumSize: 64 * 1024 * 1024)
                 total += bytes.count
-                guard total <= 256 * 1024 * 1024, AssetModPackage.hash(bytes) == hash else {
+                guard total <= 1024 * 1024 * 1024, AssetModPackage.hash(bytes) == hash else {
                     throw AssetModPackage.failure("Stored assets changed or the profile exceeds the supported snapshot limit.")
                 }
                 files[key] = bytes
