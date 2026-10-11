@@ -1257,6 +1257,31 @@ final class SteamacBridge {
     /// Guest-enforced atomic publication of a staged BepInEx DLL.
     /// Requires pluginCommitV1 on the guest; no fs-rename fallback.
     /// Dedicated checked publication; never falls back to generic filesystem rename.
+    func managedReShadeInstalled(game: SteamacGame, endpoint: SteamacBridgeEndpoint) throws -> Bool {
+        guard try handshake(endpoint: endpoint).capabilities.supports(.reShadeInstallV1),
+              let install = try gameInstall(for: game, endpoint: endpoint), case .guest(let executable) = install.environmentExecutablePath else { return false }
+        let response = try request("reshade-state \(game.appId) \(encodeProtocolField(executable))", endpoint: endpoint)
+        guard ["reshade-state installed", "reshade-state absent"].contains(response) else { throw SteamacBridgeError.malformedResponse(response) }
+        return response == "reshade-state installed"
+    }
+    func reShadeTarget(appId: UInt32, executable: String, endpoint: SteamacBridgeEndpoint) throws -> (directory: String, executableHash: String) {
+        guard try handshake(endpoint: endpoint).capabilities.supports(.reShadeInstallV1) else {
+            throw ReShadePackage.failure("Update Steamac and restart its VM to install ReShade.")
+        }
+        let response = try request("reshade-target \(appId) \(encodeProtocolField(executable))", endpoint: endpoint)
+        let fields = response.split(separator: " ")
+        guard fields.count == 3, fields[0] == "reshade-target", let directory = decodeProtocolField(String(fields[1])),
+              fields[2].count == 64, fields[2].allSatisfy({ $0.isHexDigit }) else { throw SteamacBridgeError.malformedResponse(response) }
+        return (directory, String(fields[2]))
+    }
+    func commitReShade(appId: UInt32, stage: String, endpoint: SteamacBridgeEndpoint) throws {
+        guard try handshake(endpoint: endpoint).capabilities.supports(.reShadeInstallV1) else {
+            throw ReShadePackage.failure("Update Steamac and restart its VM to install ReShade.")
+        }
+        let response = try request("reshade-install \(appId) \(encodeProtocolField(stage))", endpoint: endpoint)
+        guard response == "reshade-installed" else { throw SteamacBridgeError.malformedResponse(response) }
+    }
+
     func commitAssetMod(appId: UInt32, adapter: String, stage: String,
                         endpoint: SteamacBridgeEndpoint) throws -> String {
         let hello = try handshake(endpoint: endpoint)
