@@ -26,7 +26,7 @@
 
 ---
 
-## Asset profiles (v2.2.0)
+## Asset profiles (v2.3.1)
 
 2.3.0 adds data-only music packages to the same asset profiles, with randomized HCA tracks and volume YAML compiled by Steamac Kiwi Build 7 (`assetAudioBanksV1`). Classic Looming Threat playback, volume and looping were confirmed in-game. Settings-only packages can override music volume through profile conflict priority without editing the original download. See [music support and tested limits](docs/AUDIO-MODS.md). The app-bundle audit passed. The latest release is linked above.
 
