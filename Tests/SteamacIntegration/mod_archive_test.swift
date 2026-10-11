@@ -17,6 +17,14 @@ import Foundation
                 precondition(imported.files == folder.files)
             }
         }
+        if let large = ProcessInfo.processInfo.environment["BEPIS_LARGE_ARCHIVE_FIXTURES"] {
+            let folder = URL(fileURLWithPath: large)
+            do {
+                let files = try ModArchive.files(in: folder.appendingPathComponent("file-boundary.zip"))
+                precondition(files["large.bin"]?.count == 128 * 1024 * 1024)
+            }
+            do { _ = try ModArchive.files(in: folder.appendingPathComponent("file-overflow.zip")); fatalError("Accepted archive file above 128 MiB") } catch {}
+        }
         print("PASS: actual RAR import matches extracted source; actual asset 7z import; wrapped ZIP, traversal, absolute paths, links and case-conflict rejection")
     }
 }

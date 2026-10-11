@@ -3,7 +3,7 @@ import Foundation
 /// Shared asset-mod entry point, with game-specific adapters behind it.
 struct SteamacAssetModInstaller {
     static let payloadHashes = [
-        "bepis-mvgl.asi": "2b4e7714ba8b1758c6298783dd304865c1ed51d89679061c48a8076b591775b6",
+        "bepis-mvgl.asi": "134051c0ecb7821e4375eb2c65a977b360fd1746e36fcba8c7da3220ebe558e1",
         "winmm.dll": "412d410eb6091fb483b150bea1b13f8aeb746be8c62802ea7e081fd15ea64b69"]
     static func install(_ package: AssetModPackage, game: SteamacGame,
                         endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared, payloadRoot: URL? = nil) throws -> String {

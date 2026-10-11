@@ -83,7 +83,7 @@ struct AssetModPackage {
                 throw failure("Unsupported or conflicting asset path: \(key)")
             }
             let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            guard size > 0, size <= 64 * 1024 * 1024, total + size <= 256 * 1024 * 1024, files.count < 4096 else {
+            guard size > 0, size <= 128 * 1024 * 1024, total + size <= 1024 * 1024 * 1024, files.count < 4096 else {
                 throw failure("This asset mod exceeds the supported size limits.")
             }
             let data = try boundedRead(file, maximum: size)

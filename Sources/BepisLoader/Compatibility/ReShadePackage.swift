@@ -49,9 +49,9 @@ struct ReShadePackage {
             if values.isDirectory == true { continue }
             if file.lastPathComponent == ".DS_Store" || file.lastPathComponent.hasPrefix("._") || ["ReShade.log", "README.md", "README.txt", "LICENSE", "LICENSE.txt"].contains(file.lastPathComponent) { continue }
             guard values.isRegularFile == true, allowed(relative), seen.insert(relative.lowercased()).inserted else { throw failure("Unsupported or conflicting ReShade file: \(relative)") }
-            guard (values.fileSize ?? Int.max) <= 64 * 1024 * 1024 else { throw failure("ReShade files must be at most 64 MiB each.") }
-            let data = try Self.boundedRead(file, maximum: 64 * 1024 * 1024)
-            total += data.count; guard total <= 256 * 1024 * 1024, files.count < 4096 else { throw failure("ReShade packages must be at most 256 MiB / 4,096 files.") }
+            guard (values.fileSize ?? Int.max) <= 128 * 1024 * 1024 else { throw failure("ReShade files must be at most 128 MiB each.") }
+            let data = try Self.boundedRead(file, maximum: 128 * 1024 * 1024)
+            total += data.count; guard total <= 1024 * 1024 * 1024, files.count < 4096 else { throw failure("ReShade packages must be at most 1 GiB / 4,096 files.") }
             if relative == "dxgi.dll" || relative == "d3dcompiler_47.dll" || relative.hasSuffix(".addon64") {
                 guard isX64DLL(data) else { throw failure("\(relative) must be a Windows x64 DLL, matching the game rather than the ARM64 host.") }
             }

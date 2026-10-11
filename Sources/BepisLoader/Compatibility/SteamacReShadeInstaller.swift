@@ -98,7 +98,7 @@ struct SteamacReShadeInstaller {
             package.files["dxgi.dll"] = try officialRuntime(addons: !package.addons.isEmpty)
         }
         if package.files["d3dcompiler_47.dll"] == nil { package.files["d3dcompiler_47.dll"] = try shaderCompiler() }
-        guard package.totalBytes <= 256 * 1024 * 1024 else { throw ReShadePackage.failure("Package plus compiler exceeds 256 MiB.") }
+        guard package.totalBytes <= 1024 * 1024 * 1024 else { throw ReShadePackage.failure("Package plus compiler exceeds 1 GiB.") }
         let stage = target.directory + "/.bepis-reshade-stage-" + UUID().uuidString.lowercased()
         try bridge.createGuestDirectory(stage + "/files", endpoint: endpoint)
         for (name, data) in package.files.sorted(by: { $0.key < $1.key }) {

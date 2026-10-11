@@ -83,7 +83,7 @@ enum AssetModProfiles {
                 // Inventory uses the stored JSON manifest; payloads are fetched and
                 // verified only for publication, never merely to display the manager.
                 if metadataOnly { files[key] = Data(); continue }
-                let bytes = try bridge.readGuestFile(at: mod.root + "/" + key, endpoint: endpoint, maximumSize: 64 * 1024 * 1024)
+                let bytes = try bridge.readGuestFile(at: mod.root + "/" + key, endpoint: endpoint, maximumSize: 128 * 1024 * 1024)
                 total += bytes.count
                 guard total <= 1024 * 1024 * 1024, AssetModPackage.hash(bytes) == hash else {
                     throw AssetModPackage.failure("Stored assets changed or the profile exceeds the supported snapshot limit.")

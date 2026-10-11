@@ -14,3 +14,8 @@ if [[ -n "${BEPIS_ARCHIVE_FIXTURES:-}" ]]; then
     swiftc -module-cache-path "$BEPIS_TEST_ROOT/swift-cache" "${common[@]}" Sources/BepisLoader/Compatibility/AssetModPackage.swift Tests/SteamacIntegration/mod_archive_test.swift -o "$BEPIS_TEST_ROOT/mod-archive-tests"
     "$BEPIS_TEST_ROOT/mod-archive-tests"
 fi
+
+if [[ "${BEPIS_TEST_LARGE_PACKAGES:-0}" == 1 ]]; then
+    swiftc -module-cache-path "$BEPIS_TEST_ROOT/swift-cache" Sources/BepisLoader/Compatibility/AssetModPackage.swift Tests/SteamacIntegration/package_size_test.swift -o "$BEPIS_TEST_ROOT/package-size-tests"
+    "$BEPIS_TEST_ROOT/package-size-tests"
+fi

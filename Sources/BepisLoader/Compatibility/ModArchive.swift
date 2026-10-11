@@ -17,7 +17,7 @@ enum ModArchive {
     static func files(in source: URL) throws -> [String: Data] {
         let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
         guard values.isRegularFile == true, values.isSymbolicLink != true, source.standardizedFileURL == source.resolvingSymlinksInPath().standardizedFileURL,
-              (values.fileSize ?? Int.max) <= 256 * 1024 * 1024 else { throw ReShadePackage.failure("Archive must be a regular file no larger than 256 MiB.") }
+              (values.fileSize ?? Int.max) <= 1024 * 1024 * 1024 else { throw ReShadePackage.failure("Archive must be a regular file no larger than 1 GiB.") }
         guard let library = dlopen("/usr/lib/libarchive.2.dylib", RTLD_NOW | RTLD_LOCAL) else { throw ReShadePackage.failure("macOS archive reader is unavailable.") }
         defer { dlclose(library) }
         func symbol<T>(_ name: String, _ type: T.Type) throws -> T {
@@ -61,14 +61,14 @@ enum ModArchive {
             }
             if isDirectory { continue }
             let expected = size(entry)
-            guard expected >= 0, expected <= 64 * 1024 * 1024, files.count < 4096 else { throw ReShadePackage.failure("Archive files must be at most 64 MiB, with at most 4,096 files.") }
+            guard expected >= 0, expected <= 128 * 1024 * 1024, files.count < 4096 else { throw ReShadePackage.failure("Archive files must be at most 128 MiB, with at most 4,096 files.") }
             var data = Data()
             while true {
                 let count = buffer.withUnsafeMutableBytes { read(archive, $0.baseAddress!, $0.count) }
                 guard count >= 0 else { throw ReShadePackage.failure("Archive decompression failed.") }
                 if count == 0 { break }
                 total += count
-                guard data.count + count <= 64 * 1024 * 1024, total <= 256 * 1024 * 1024 else { throw ReShadePackage.failure("Expanded archive exceeds the package size limit.") }
+                guard data.count + count <= 128 * 1024 * 1024, total <= 1024 * 1024 * 1024 else { throw ReShadePackage.failure("Expanded archive exceeds the package size limit.") }
                 data.append(contentsOf: buffer.prefix(count))
             }
             guard data.count == Int(expected) else { throw ReShadePackage.failure("Archive entry is truncated: \(path)") }
