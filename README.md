@@ -26,7 +26,7 @@
 
 ---
 
-## Asset profiles (v2.3.1)
+## What's new? (v2.3.1)
 
 2.3.0 adds data-only music packages to the same asset profiles, with randomized HCA tracks and volume YAML compiled by Steamac Kiwi Build 7 (`assetAudioBanksV1`). Classic Looming Threat playback, volume and looping were confirmed in-game. Settings-only packages can override music volume through profile conflict priority without editing the original download. See [music support and tested limits](docs/AUDIO-MODS.md). The app-bundle audit passed. The latest release is linked above.
 
@@ -39,6 +39,37 @@ The matching Steamac build must advertise `assetModProfilesV1` (Kiwi Build 6). A
 Previous single-package installs are imported into the first profile **disabled** for explicit review. Enable the desired mods and replace the previous package-specific launch path with the stable setting once. The profile is stored in the SteamOS game folder, so closing BepisLoader does not lose it. Limits: 64 mods and 1 GiB of referenced package snapshots; active assets also retain the 4096-file/128-MiB-per-file limits.
 
 **Install Plugins…** in the Steamac cockpit accepts multiple BepInEx DLLs. The entire selection is snapshotted and checked for duplicate names and existing destinations before uploads begin. Every published DLL is verified; a late failure reports the successfully verified subset and stops without deleting it. The local bottle BepInEx picker already supports multiple files.
+
+### Faster asset-mod management
+
+The asset-mod manager reads the persisted JSON profile and package manifests to display installed mods, asset counts and priority conflicts. Opening it no longer downloads every replacement asset from the VM. Applying changes still reads and verifies the stored files and publishes a checked combined profile. Reopening the manager reads the current JSON metadata, so changes made by another client are visible.
+
+### ReShade installation and launch settings
+
+In the Steamac game view, choose **Launch options…**, check **Include ReShade (Direct3D / DXGI)**, and paste the value of an existing `WINEDLLOVERRIDES` entry if another loader needs it. BepisLoader presents one combined entry with `dxgi=n,b`, `d3dcompiler_47=n,b`, and the other loader overrides. An active managed asset profile also includes its stable root, executable hash and `winmm=n,b`. Keep other environment settings and command arguments when copying the result into Steam. Choices are remembered for the current BepisLoader session.
+
+Choose **Set up ReShade…** to download and install the pinned official ReShade 6.8.0 x64 runtime and Microsoft shader compiler for a Windows x64 Direct3D / DXGI game. This creates an empty preset; install a mod to add effects. Runtime binaries are downloaded on demand rather than bundled.
+
+Choose **Install ReShade mod…** and select a ZIP/RAR/7z archive or extracted mod folder. BepisLoader extracts archives, lets you choose a preset and Down-arrow toggle, and supplies a missing runtime and compiler automatically. Packages with addons receive the addon-enabled runtime when setting up a missing runtime. An existing valid ReShade runtime is retained when the package does not supply one. Close the game before installing; Steam can stay open. Copy the presented combined launch options into Steam manually.
+
+The checked installer preserves the asset profile and unrelated game files, keeps backups when updating its own unedited files, and stops on conflicting or user-edited files. **Back up and replace existing ReShade settings** explicitly permits replacing `ReShade.ini` when a valid ReShade runtime is already present; it preserves the old settings in a backup. A saved guest receipt lets Launch options… and subsequent asset-profile updates include managed ReShade after BepisLoader restarts. Archive imports are limited to 1 GiB expanded / 4,096 files and 128 MiB per file. Apps run from an external volume keep download and extraction staging beside the app.
+
+Launch options… alone configures already installed loaders; it does not install files or establish support for arbitrary Reloaded-II plugins. Digimon was tested with ReShade 6.3.3 and ShaderToggler 1.2.1: all 21 included effects compiled after adding the Microsoft x64 compiler. Shader packs using a different graphics API need separate integration.
+
+### Larger combined profiles and additional data mods
+
+Combined asset profiles support up to **1 GiB** of stored inputs and published assets, with 64 mods and 4,096 replacement files. Individual imported packages are limited to 1 GiB and individual files to 128 MiB. This requires the matching updated Steamac guest; older builds reject profiles above 256 MiB. Finder `.DS_Store` metadata is excluded from asset imports.
+
+Skip Opening Logos uses an animation replacement plus opening-flow table edits. Water Recolor adds new Digimon slots through model, texture, animation, evolution and localized text assets, including appended table rows. Both use the existing data-only adapter and table compiler. The full seven-mod fixture compiled 84 tables and 17 music banks; the opening-logo skip, Water Recolor and existing costume, DigiRide and music mods were confirmed working together in live ARM64 Proton gameplay.
+
+ReShade installer validation: package and installer regression checks passed, including the actual Digimon RAR, an actual asset 7z, wrapped ZIP imports, automatic fresh setup, pinned standard/addon runtime downloads, portable paths, Down-arrow configuration, pinned SDK download and architecture checks. Archive traversal, links and conflicting names are rejected. An isolated SteamOS fixture installed all 86 package/compiler files, updated a preset with a retained backup, and preserved the asset loader/profile. Live gameplay of the new UI installation flow remains a separate check; earlier manual ReShade installation was confirmed working.
+
+### Faster Apply
+
+The matching Steamac guest composes profiles locally: Apply reads stored package manifests and sends the profile settings, leaving existing mod payloads in the VM. Tables and music banks reuse verified outputs from the previous active profile when their compiler, original game data and ordered inputs match. Unchanged profiles retain their active snapshot; changing priorities or enablement still updates the saved profile. Source/output verification and atomic activation remain enforced. Older guests fall back to the full-transfer flow. The first Apply after upgrading populates compilation receipts; subsequent compatible changes reuse them.
+
+Adding asset mods reads installed manifests rather than downloading their payloads before review. Import progress identifies each selected archive/folder. Apply performs the full guest verification and combined-size check before activation.
+
 
 ## 🐸 What's new in v2.1.0
 
@@ -156,33 +187,3 @@ Created by **Kiwi Singh** and the community. Special thanks to the BepInEx team 
 MBE CSV support now compiles the original game tables, merges changed cells in enabled-mod order, and appends `.ap.csv` rows afterward. Distinct cell edits coexist; later mods win competing edits. Requires Steamac with `assetMbeTablesV1`. Whole MBE replacements mixed with CSV edits to the same table are rejected for review. The native adapter resolves the managed stable folder before snapshotting its assets.
 
 DigiRide's actual package compiled nine MBE tables and passed isolated checked publication alongside both costume mods, including pinned loader migration. Chronomon and Parallelmon riding, plus the Kanan/Inori replacements, were confirmed together in live gameplay through the stable asset root. App bundle audit passed.
-
-### Faster asset-mod management
-
-The asset-mod manager reads the persisted JSON profile and package manifests to display installed mods, asset counts and priority conflicts. Opening it no longer downloads every replacement asset from the VM. Applying changes still reads and verifies the stored files and publishes a checked combined profile. Reopening the manager reads the current JSON metadata, so changes made by another client are visible.
-
-### ReShade installation and launch settings
-
-In the Steamac game view, choose **Launch options…**, check **Include ReShade (Direct3D / DXGI)**, and paste the value of an existing `WINEDLLOVERRIDES` entry if another loader needs it. BepisLoader presents one combined entry with `dxgi=n,b`, `d3dcompiler_47=n,b`, and the other loader overrides. An active managed asset profile also includes its stable root, executable hash and `winmm=n,b`. Keep other environment settings and command arguments when copying the result into Steam. Choices are remembered for the current BepisLoader session.
-
-Choose **Set up ReShade…** to download and install the pinned official ReShade 6.8.0 x64 runtime and Microsoft shader compiler for a Windows x64 Direct3D / DXGI game. This creates an empty preset; install a mod to add effects. Runtime binaries are downloaded on demand rather than bundled.
-
-Choose **Install ReShade mod…** and select a ZIP/RAR/7z archive or extracted mod folder. BepisLoader extracts archives, lets you choose a preset and Down-arrow toggle, and supplies a missing runtime and compiler automatically. Packages with addons receive the addon-enabled runtime when setting up a missing runtime. An existing valid ReShade runtime is retained when the package does not supply one. Close the game before installing; Steam can stay open. Copy the presented combined launch options into Steam manually.
-
-The checked installer preserves the asset profile and unrelated game files, keeps backups when updating its own unedited files, and stops on conflicting or user-edited files. **Back up and replace existing ReShade settings** explicitly permits replacing `ReShade.ini` when a valid ReShade runtime is already present; it preserves the old settings in a backup. A saved guest receipt lets Launch options… and subsequent asset-profile updates include managed ReShade after BepisLoader restarts. Archive imports are limited to 1 GiB expanded / 4,096 files and 128 MiB per file. Apps run from an external volume keep download and extraction staging beside the app.
-
-Launch options… alone configures already installed loaders; it does not install files or establish support for arbitrary Reloaded-II plugins. Digimon was tested with ReShade 6.3.3 and ShaderToggler 1.2.1: all 21 included effects compiled after adding the Microsoft x64 compiler. Shader packs using a different graphics API need separate integration.
-
-### Larger combined profiles and additional data mods
-
-Combined asset profiles support up to **1 GiB** of stored inputs and published assets, with 64 mods and 4,096 replacement files. Individual imported packages are limited to 1 GiB and individual files to 128 MiB. This requires the matching updated Steamac guest; older builds reject profiles above 256 MiB. Finder `.DS_Store` metadata is excluded from asset imports.
-
-Skip Opening Logos uses an animation replacement plus opening-flow table edits. Water Recolor adds new Digimon slots through model, texture, animation, evolution and localized text assets, including appended table rows. Both use the existing data-only adapter and table compiler. The full seven-mod fixture compiled 84 tables and 17 music banks; the opening-logo skip, Water Recolor and existing costume, DigiRide and music mods were confirmed working together in live ARM64 Proton gameplay.
-
-ReShade installer validation: package and installer regression checks passed, including the actual Digimon RAR, an actual asset 7z, wrapped ZIP imports, automatic fresh setup, pinned standard/addon runtime downloads, portable paths, Down-arrow configuration, pinned SDK download and architecture checks. Archive traversal, links and conflicting names are rejected. An isolated SteamOS fixture installed all 86 package/compiler files, updated a preset with a retained backup, and preserved the asset loader/profile. Live gameplay of the new UI installation flow remains a separate check; earlier manual ReShade installation was confirmed working.
-
-### Faster Apply
-
-The matching Steamac guest composes profiles locally: Apply reads stored package manifests and sends the profile settings, leaving existing mod payloads in the VM. Tables and music banks reuse verified outputs from the previous active profile when their compiler, original game data and ordered inputs match. Unchanged profiles retain their active snapshot; changing priorities or enablement still updates the saved profile. Source/output verification and atomic activation remain enforced. Older guests fall back to the full-transfer flow. The first Apply after upgrading populates compilation receipts; subsequent compatible changes reuse them.
-
-Adding asset mods reads installed manifests rather than downloading their payloads before review. Import progress identifies each selected archive/folder. Apply performs the full guest verification and combined-size check before activation.
