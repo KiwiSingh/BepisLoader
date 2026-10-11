@@ -1264,6 +1264,14 @@ final class SteamacBridge {
         guard ["reshade-state installed", "reshade-state absent"].contains(response) else { throw SteamacBridgeError.malformedResponse(response) }
         return response == "reshade-state installed"
     }
+    func existingReShadeRuntime(appId: UInt32, executable: String, endpoint: SteamacBridgeEndpoint) throws -> String? {
+        let response = try request("reshade-runtime \(appId) \(encodeProtocolField(executable))", endpoint: endpoint)
+        let fields = response.split(separator: " ")
+        guard fields.count == 2, fields[0] == "reshade-runtime" else { throw SteamacBridgeError.malformedResponse(response) }
+        if fields[1] == "absent" { return nil }
+        guard fields[1].count == 64, fields[1].allSatisfy({ $0.isHexDigit }) else { throw SteamacBridgeError.malformedResponse(response) }
+        return String(fields[1])
+    }
     func reShadeTarget(appId: UInt32, executable: String, endpoint: SteamacBridgeEndpoint) throws -> (directory: String, executableHash: String) {
         guard try handshake(endpoint: endpoint).capabilities.supports(.reShadeInstallV1) else {
             throw ReShadePackage.failure("Update Steamac and restart its VM to install ReShade.")

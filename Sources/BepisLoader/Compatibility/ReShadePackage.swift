@@ -6,6 +6,7 @@ struct ReShadePackage {
     var files: [String: Data]
     let name: String
     let presets: [String]
+    var replaceExistingSettings = false
     static let compilerHash = "e994847e01a6f1e4cbdc5a864616ac262f67ee4f14db194984661a8d927ab7f4"
     var totalBytes: Int { files.values.reduce(0) { $0 + $1.count } }
     var addons: [String] { files.keys.filter { $0.hasSuffix(".addon64") }.sorted() }
@@ -108,6 +109,6 @@ struct ReShadePackage {
         return lines.joined(separator: "\n")
     }
     func manifest(appId: UInt32, executable: String, executableHash: String) throws -> Data {
-        try JSONSerialization.data(withJSONObject: ["schema": 1, "appId": appId, "executable": executable, "executableHash": executableHash, "name": name, "files": files.mapValues(Self.hash)], options: [.sortedKeys])
+        try JSONSerialization.data(withJSONObject: ["schema": 1, "appId": appId, "executable": executable, "executableHash": executableHash, "name": name, "replaceExistingSettings": replaceExistingSettings, "files": files.mapValues(Self.hash)], options: [.sortedKeys])
     }
 }

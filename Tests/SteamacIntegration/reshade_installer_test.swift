@@ -12,12 +12,14 @@ struct AssetModProfiles { let baseRoot: String; static func load(game: SteamacGa
 final class SteamacBridge {
     static let shared = SteamacBridge()
     var supported = true, installed = true, runtime = true, active = true, failCommit = false
+    var runtimeHash: String? = "existing-runtime-hash"
     var architecture = Architecture.x64
     var calls: [String] = []; var uploaded: [String: Data] = [:]
     func handshake(endpoint: SteamacBridgeEndpoint) throws -> Hello { calls.append("hello"); return Hello(capabilities: Capabilities(enabled: supported)) }
     func gameInstall(for game: SteamacGame, endpoint: SteamacBridgeEndpoint) throws -> GameInstall? { calls.append("game"); return installed ? GameInstall(environmentExecutablePath: .guest(game.installPath + "/game.exe")) : nil }
     func peArchitecture(for install: GameInstall, endpoint: SteamacBridgeEndpoint) throws -> Architecture { architecture }
     func protonRuntime(for appId: UInt32, endpoint: SteamacBridgeEndpoint) throws -> String? { runtime ? "/proton" : nil }
+    func existingReShadeRuntime(appId: UInt32, executable: String, endpoint: SteamacBridgeEndpoint) throws -> String? { runtimeHash }
     func reShadeTarget(appId: UInt32, executable: String, endpoint: SteamacBridgeEndpoint) throws -> (directory: String, executableHash: String) { calls.append("target"); return ((executable as NSString).deletingLastPathComponent, String(repeating: "a", count: 64)) }
     func createGuestDirectory(_ path: String, endpoint: SteamacBridgeEndpoint) throws { calls.append("mkdir") }
     func writeGuestFile(_ data: Data, to path: String, endpoint: SteamacBridgeEndpoint) throws { calls.append("write"); uploaded[path] = data }
@@ -53,6 +55,18 @@ final class SteamacBridge {
         if ProcessInfo.processInfo.environment["BEPIS_TEST_DOWNLOAD_COMPILER"] == "1" {
             let compiler = try SteamacReShadeInstaller.shaderCompiler()
             precondition(ReShadePackage.hash(compiler) == ReShadePackage.compilerHash && ReShadePackage.isX64DLL(compiler))
+            let automatic = SteamacBridge(); automatic.runtimeHash = nil; automatic.active = false
+            let setup = try SteamacReShadeInstaller.setupPackage()
+            _ = try SteamacReShadeInstaller.install(setup, game: SteamacGame(appId: 7, installPath: "/games/Other", name: "Other"), endpoint: endpoint, bridge: automatic)
+            let uploadedRuntime = automatic.uploaded.first { $0.key.hasSuffix("/dxgi.dll") }!.value
+            precondition(ReShadePackage.hash(uploadedRuntime) == SteamacReShadeInstaller.runtimeHashes[false])
+            precondition(automatic.uploaded.keys.contains { $0.hasSuffix("/d3dcompiler_47.dll") })
+            print("PASS: fresh-game automatic setup supplies official x64 runtime, compiler and default configuration")
+            for addons in [false, true] {
+                let runtime = try SteamacReShadeInstaller.officialRuntime(addons: addons)
+                precondition(ReShadePackage.hash(runtime) == SteamacReShadeInstaller.runtimeHashes[addons])
+            }
+            print("PASS: pinned official ReShade standard/addon downloads and embedded x64 runtime extraction")
             print("PASS: pinned Microsoft SDK download, CAB extraction and native x64 shader compiler integrity")
         }
         print("PASS: capability/architecture/Proton preflight, staged-only upload, checked commit, combined launch options, guest rejection and game-agnostic preset installation")

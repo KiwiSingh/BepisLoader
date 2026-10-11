@@ -32,6 +32,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     private var assetProfileWindow: AssetModProfileWindowController?
     private let manageAssetButton = NSButton(title: "Manage asset mods…", target: nil, action: nil)
     private let disableAssetButton = NSButton(title: "Disable asset mods", target: nil, action: nil)
+    private let setupReShadeButton = NSButton(title: "Set up ReShade…", target: nil, action: nil)
     private let installReShadeButton = NSButton(title: "Install ReShade mod…", target: nil, action: nil)
     private let launchOptionsButton = NSButton(title: "Launch options…", target: nil, action: nil)
     private var reshadeGames: Set<UInt32> = []
@@ -92,6 +93,8 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         manageAssetButton.action = #selector(manageAssetMods)
         disableAssetButton.target = self
         disableAssetButton.action = #selector(disableAssetMods)
+        setupReShadeButton.target = self
+        setupReShadeButton.action = #selector(setupReShade)
         installReShadeButton.target = self
         installReShadeButton.action = #selector(installReShade)
         launchOptionsButton.target = self
@@ -115,7 +118,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         reportScroll.documentView = reportTextView
         reportScroll.heightAnchor.constraint(equalToConstant: 330).isActive = true
         let assetActions = NSStackView(views: [installAssetButton, manageAssetButton, disableAssetButton])
-        let graphicsActions = NSStackView(views: [installReShadeButton, launchOptionsButton])
+        let graphicsActions = NSStackView(views: [setupReShadeButton, installReShadeButton, launchOptionsButton])
         graphicsActions.spacing = 8
         assetActions.orientation = .horizontal
         assetActions.spacing = 8
@@ -616,6 +619,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         installAssetButton.isEnabled = enabled
         disableAssetButton.isEnabled = enabled
         manageAssetButton.isEnabled = enabled
+        setupReShadeButton.isEnabled = enabled
         installReShadeButton.isEnabled = enabled
         launchOptionsButton.isEnabled = enabled
         inspectPayloadButton.isEnabled = enabled
@@ -958,15 +962,15 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     @objc private func installAssetMod() {
         guard !pluginOperationBusy, let game = selectedPluginGame, let endpoint = activeEndpoint else { return }
         guard AssetModAdapter.forGame(game.appId) != nil else { showReport("No asset adapter is available for this game yet."); return }
-        let panel = NSOpenPanel(); panel.title = "Choose asset mod folders"
-        panel.message = "Select extracted mod folders containing ModConfig.json. Review enablement and conflicts before applying."
-        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = true
+        let panel = NSOpenPanel(); panel.title = "Choose asset mods"
+        panel.message = "Select RAR/ZIP/7z archives or extracted mod folders containing ModConfig.json. Review enablement and conflicts before applying."
+        panel.canChooseDirectories = true; panel.canChooseFiles = true; panel.allowsMultipleSelection = true
         guard panel.runModal() == .OK else { return }; let folders = panel.urls
         pluginOperationBusy = true; updatePluginButtons(); showReport("Checking asset mods and current profile…")
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let profile = try AssetModProfiles.load(game: game, endpoint: endpoint, bridge: self.bridge)
-                let packages = try folders.map { try AssetModPackage.inspect(folder: $0, appId: game.appId) }
+                let packages = try folders.map { source in try ModArchive.inspect(source: source) { try AssetModPackage.inspect(folder: $0, appId: game.appId) } }
                 var cache = try AssetModProfiles.packages(profile, game: game, endpoint: endpoint, bridge: self.bridge)
                 guard cache.values.reduce(0, { $0 + $1.totalBytes }) + packages.reduce(0, { $0 + $1.totalBytes }) <= 1024 * 1024 * 1024 else {
                     throw AssetModPackage.failure("The stored packages in this profile would exceed 1 GiB. Remove unused mods from the profile first.")
@@ -987,40 +991,53 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
             } catch { self.assetOperationFailed(error) }
         }
     }
+    @objc private func setupReShade() {
+        guard !pluginOperationBusy, let game = selectedPluginGame, let endpoint = activeEndpoint else { return }
+        do { reviewReShade(try SteamacReShadeInstaller.setupPackage(), game: game, endpoint: endpoint, setupOnly: true) }
+        catch { assetOperationFailed(error, operation: "ReShade setup") }
+    }
     @objc private func installReShade() {
         guard !pluginOperationBusy, let game = selectedPluginGame, let endpoint = activeEndpoint else { return }
-        let panel = NSOpenPanel(); panel.title = "Choose a ReShade mod folder"
-        panel.message = "Choose an extracted ReShade mod folder containing its preset and shaders. This imports a mod package; it does not download ReShade itself. Packages without the ReShade runtime require it already installed. Extract ZIP/RAR archives first."
-        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
-        pluginOperationBusy = true; updatePluginButtons(); showReport("Inspecting ReShade package…")
+        let panel = NSOpenPanel(); panel.title = "Choose a ReShade mod"
+        panel.message = "Select a RAR/ZIP archive or mod folder. BepisLoader extracts archives and sets up ReShade automatically if it is missing."
+        panel.canChooseDirectories = true; panel.canChooseFiles = true; panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let source = panel.url else { return }
+        pluginOperationBusy = true; updatePluginButtons(); showReport("Opening ReShade mod…")
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                let inspected = try ReShadePackage.inspect(folder: folder)
+                var inspected = try ModArchive.inspect(source: source) { try ReShadePackage.inspect(folder: $0) }
+                inspected = ReShadePackage(files: inspected.files, name: source.lastPathComponent, presets: inspected.presets)
                 DispatchQueue.main.async {
-                    let review = NSAlert(); review.messageText = "Install ReShade mod for \(game.name)?"
-                    review.informativeText = "Close the game first. This installs \(inspected.files.count) files beside its executable. Existing unrelated files are preserved; conflicting unmanaged or edited files stop installation. Microsoft's tested shader compiler is downloaded if absent from the package."
-                        + (inspected.addons.isEmpty ? "" : "\n\nThis package includes executable addons: " + inspected.addons.joined(separator: ", ") + ". Install only if you trust the author.")
-                    let preset = NSPopUpButton(); preset.addItems(withTitles: inspected.presets)
-                    let toggle = NSButton(checkboxWithTitle: "Use Down arrow to toggle effects", target: nil, action: nil); toggle.state = .on
-                    let overrides = NSTextField(string: self.loaderOverrides[game.appId] ?? ""); overrides.placeholderString = "Existing WINEDLLOVERRIDES value, if any"
-                    let controls = NSStackView(views: [NSTextField(labelWithString: "Active preset"), preset, toggle, overrides])
-                    controls.orientation = .vertical; controls.alignment = .leading; controls.frame = NSRect(x: 0, y: 0, width: 480, height: 125)
-                    overrides.widthAnchor.constraint(equalToConstant: 480).isActive = true
-                    review.accessoryView = controls; review.addButton(withTitle: "Install"); review.addButton(withTitle: "Cancel")
-                    guard review.runModal() == .alertFirstButtonReturn, let selected = preset.titleOfSelectedItem else { self.pluginOperationBusy = false; self.updatePluginButtons(); return }
-                    let useDown = toggle.state == .on, existing = overrides.stringValue
-                    self.showReport("Installing ReShade and checking existing files…")
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        do {
-                            var package = inspected; try package.configure(preset: selected, downArrow: useDown)
-                            let report = try SteamacReShadeInstaller.install(package, game: game, endpoint: endpoint, bridge: self.bridge, existingOverrides: existing)
-                            DispatchQueue.main.async {
-                                self.reshadeGames.insert(game.appId); self.loaderOverrides[game.appId] = existing
-                                self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(report)
-                            }
-                        } catch { self.assetOperationFailed(error, operation: "ReShade installation") }
-                    }
+                    self.pluginOperationBusy = false; self.updatePluginButtons()
+                    self.reviewReShade(inspected, game: game, endpoint: endpoint, setupOnly: false)
+                }
+            } catch { self.assetOperationFailed(error, operation: "ReShade installation") }
+        }
+    }
+    private func reviewReShade(_ inspected: ReShadePackage, game: SteamacGame, endpoint: SteamacBridgeEndpoint, setupOnly: Bool) {
+        let review = NSAlert(); review.messageText = setupOnly ? "Set up ReShade for \(game.name)?" : "Install ReShade mod for \(game.name)?"
+        review.informativeText = "Close the game first. BepisLoader installs the official ReShade runtime when missing and the tested Microsoft shader compiler. Existing unrelated or edited files are preserved; conflicts stop installation. Steam launch options are presented for you to copy."
+            + (setupOnly ? "\n\nThis sets up the overlay with an empty preset. Install a ReShade mod afterward to add its effects and shaders." : "\n\nPackage: " + inspected.name)
+            + (inspected.addons.isEmpty ? "" : "\n\nExecutable addons: " + inspected.addons.joined(separator: ", ") + ". Install only if you trust the author.")
+        let preset = NSPopUpButton(); preset.addItems(withTitles: inspected.presets)
+        let toggle = NSButton(checkboxWithTitle: "Use Down arrow to toggle effects", target: nil, action: nil); toggle.state = .on
+        let replaceSettings = NSButton(checkboxWithTitle: "Back up and replace existing ReShade settings", target: nil, action: nil); replaceSettings.state = .off
+        let overrides = NSTextField(string: loaderOverrides[game.appId] ?? ""); overrides.placeholderString = "Existing WINEDLLOVERRIDES value, if any"
+        let controls = NSStackView(views: [NSTextField(labelWithString: "Active preset"), preset, toggle, replaceSettings, overrides])
+        controls.orientation = .vertical; controls.alignment = .leading; controls.frame = NSRect(x: 0, y: 0, width: 480, height: 155)
+        overrides.widthAnchor.constraint(equalToConstant: 480).isActive = true
+        review.accessoryView = controls; review.addButton(withTitle: setupOnly ? "Set up ReShade" : "Install mod"); review.addButton(withTitle: "Cancel")
+        guard review.runModal() == .alertFirstButtonReturn, let selected = preset.titleOfSelectedItem else { return }
+        let useDown = toggle.state == .on, existing = overrides.stringValue, replaceExisting = replaceSettings.state == .on
+        pluginOperationBusy = true; updatePluginButtons(); showReport("Setting up ReShade and installing files…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                var package = inspected; try package.configure(preset: selected, downArrow: useDown)
+                package.replaceExistingSettings = replaceExisting
+                let report = try SteamacReShadeInstaller.install(package, game: game, endpoint: endpoint, bridge: self.bridge, existingOverrides: existing)
+                DispatchQueue.main.async {
+                    self.reshadeGames.insert(game.appId); self.loaderOverrides[game.appId] = existing
+                    self.pluginOperationBusy = false; self.updatePluginButtons(); self.showReport(report)
                 }
             } catch { self.assetOperationFailed(error, operation: "ReShade installation") }
         }

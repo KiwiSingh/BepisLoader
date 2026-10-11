@@ -1,11 +1,46 @@
 import Foundation
 
 struct SteamacReShadeInstaller {
+    static let runtimeVersion = "6.8.0"
+    static let runtimeHashes = [false: "b2945c29e7095491a901746b400e58db9b1592ab092bacf2a888ce37f02d08da", true: "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"]
+    static func officialRuntime(addons: Bool) throws -> Data {
+        let fm = FileManager.default
+        let cache = BepisStaging.cacheDirectory()
+        try fm.createDirectory(at: cache, withIntermediateDirectories: true)
+        let filename = "ReShade_Setup_" + runtimeVersion + (addons ? "_Addon" : "") + ".exe"
+        let setup = cache.appendingPathComponent(filename)
+        let expected = addons ? "afe4c8f13048306307983b8b3d41d5bf00a86820440b0e57dea10950e1176445" : "207aea16205fbf952bc8fe1879966672454cf04002e7ad34237c7990a5b3c0b4"
+        let cached = (try? ReShadePackage.boundedRead(setup, maximum: 32 * 1024 * 1024)).map(ReShadePackage.hash) == expected
+        if !cached {
+            let url = URL(string: "https://reshade.me/downloads/" + filename)!
+            let semaphore = DispatchSemaphore(value: 0)
+            final class Response: @unchecked Sendable { var data: Data?; var error: Error? }
+            let result = Response(); let session = URLSession(configuration: .ephemeral)
+            defer { session.invalidateAndCancel() }
+            let task = session.dataTask(with: url) { data, response, error in
+                result.error = error
+                if let response = response as? HTTPURLResponse, response.statusCode == 200 { result.data = data }
+                semaphore.signal()
+            }
+            task.resume()
+            guard semaphore.wait(timeout: .now() + 120) == .success else { task.cancel(); throw ReShadePackage.failure("Official ReShade download timed out. Try again.") }
+            if let error = result.error { throw error }
+            guard let bytes = result.data, bytes.count <= 32 * 1024 * 1024, ReShadePackage.hash(bytes) == expected else { throw ReShadePackage.failure("Official ReShade download failed its integrity check.") }
+            try bytes.write(to: setup, options: .atomic)
+        }
+        // Read the embedded ZIP directly. Never execute the Windows setup program.
+        guard let dll = try ModArchive.files(in: setup)["ReShade64.dll"], ReShadePackage.isX64DLL(dll), ReShadePackage.hash(dll) == runtimeHashes[addons] else { throw ReShadePackage.failure("Official ReShade x64 runtime failed validation.") }
+        return dll
+    }
+    static func setupPackage() throws -> ReShadePackage {
+        var package = ReShadePackage(files: ["BepisReShadePreset.ini": Data("Techniques=\nTechniqueSorting=\n".utf8)], name: "ReShade setup", presets: ["BepisReShadePreset.ini"])
+        try package.configure(preset: "BepisReShadePreset.ini", downArrow: true)
+        return package
+    }
     /// Fetch Microsoft's tested SDK component on demand; do not redistribute it in the app.
     static func shaderCompiler() throws -> Data {
         let fm = FileManager.default
-        let cache = ProcessInfo.processInfo.environment["BEPIS_DOWNLOAD_CACHE"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? fm.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("BepisLoader/ReShade", isDirectory: true)
+        let cache = BepisStaging.cacheDirectory()
         try fm.createDirectory(at: cache, withIntermediateDirectories: true)
         let dll = cache.appendingPathComponent("d3dcompiler_47.dll")
         if fm.fileExists(atPath: dll.path), let data = try? ReShadePackage.boundedRead(dll, maximum: 64 * 1024 * 1024), ReShadePackage.hash(data) == ReShadePackage.compilerHash { return data }
@@ -59,6 +94,9 @@ struct SteamacReShadeInstaller {
         let options = try SteamacLaunchOptions.make(assetRoot: root, executableHash: hash, reshade: true, existingOverrides: existingOverrides)
         let target = try bridge.reShadeTarget(appId: game.appId, executable: executable, endpoint: endpoint)
         var package = snapshot
+        if package.files["dxgi.dll"] == nil, try bridge.existingReShadeRuntime(appId: game.appId, executable: executable, endpoint: endpoint) == nil {
+            package.files["dxgi.dll"] = try officialRuntime(addons: !package.addons.isEmpty)
+        }
         if package.files["d3dcompiler_47.dll"] == nil { package.files["d3dcompiler_47.dll"] = try shaderCompiler() }
         guard package.totalBytes <= 256 * 1024 * 1024 else { throw ReShadePackage.failure("Package plus compiler exceeds 256 MiB.") }
         let stage = target.directory + "/.bepis-reshade-stage-" + UUID().uuidString.lowercased()
