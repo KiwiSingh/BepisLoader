@@ -94,6 +94,10 @@ enum AssetModProfiles {
         }
         return result
     }
+    static func packagesForApply(_ profile: AssetModProfile, game: SteamacGame, endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared) throws -> [String: AssetModPackage] {
+        let reuse = try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetProfileReuseV1)
+        return try packages(profile, game: game, endpoint: endpoint, bridge: bridge, metadataOnly: reuse)
+    }
     static func apply(_ profile: AssetModProfile, merge: AssetProfileMerge, game: SteamacGame,
                       endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared, reshade: Bool = false, existingOverrides: String = "") throws -> String {
         if merge.package.files.keys.contains(where: { $0.hasPrefix("Ryo/Digimon Story Time Stranger/bgm/") }),
@@ -105,7 +109,7 @@ enum AssetModProfiles {
             throw AssetModPackage.failure("These mods require MBE table compilation. Install the updated Steamac build, restart its VM, then refresh the connection.")
         }
         let root = try SteamacAssetModInstaller.publish(merge.package, game: game, endpoint: endpoint,
-            bridge: bridge, profile: JSONEncoder().encode(profile))
+            bridge: bridge, profile: JSONEncoder().encode(profile), reuseSources: bridge.handshake(endpoint: endpoint).capabilities.supports(.assetProfileReuseV1))
         return "Applied \(profile.mods.filter(\.enabled).count) enabled asset mods.\n\n" + SteamacAssetModInstaller.launchReport(merge.package, game: game, root: root, reshade: reshade, existingOverrides: existingOverrides)
     }
 }

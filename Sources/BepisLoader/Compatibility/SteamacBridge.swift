@@ -466,6 +466,8 @@ final class SteamacBridge {
                 capabilities.insert(.assetAudioBanksV1)
             case "assetMbeTablesV1":
                 capabilities.insert(.assetMbeTablesV1)
+            case "assetProfileReuseV1":
+                capabilities.insert(.assetProfileReuseV1)
             case "assetModProfilesV1":
                 capabilities.insert(.assetModProfilesV1)
             case "assetModInstallV1":
@@ -1317,8 +1319,9 @@ final class SteamacBridge {
         return Data(decoded.utf8)
     }
 
-    func publishAssetProfile(appId: UInt32, adapter: String, stage: String, endpoint: SteamacBridgeEndpoint) throws -> String {
-        let response = try request("asset-profile-publish \(appId) \(encodeProtocolField(adapter)) \(encodeProtocolField(stage))", endpoint: endpoint)
+    func publishAssetProfile(appId: UInt32, adapter: String, stage: String, endpoint: SteamacBridgeEndpoint, reuseSources: Bool = false) throws -> String {
+        let command = reuseSources ? "asset-profile-compose" : "asset-profile-publish"
+        let response = try request("\(command) \(appId) \(encodeProtocolField(adapter)) \(encodeProtocolField(stage))", endpoint: endpoint)
         let parts = response.split(separator: " ")
         guard parts.count == 2, parts[0] == "asset-profile-published", let root = decodeProtocolField(String(parts[1])) else {
             throw SteamacBridgeError.malformedResponse(response)
@@ -2568,11 +2571,11 @@ final class SteamacBridge {
             Darwin.close(fd)
         }
 
-        // 42A-1: Reloaded-II setup can take several minutes
-        // under Proton. Ordinary bridge requests retain their
+        // Setup and checked profile compilation can take several minutes.
+        // Ordinary bridge requests retain their
         // existing five-second receive timeout.
         let receiveTimeoutSeconds: Int =
-            request.hasPrefix("reloadedii-setup ")
+            (request.hasPrefix("reloadedii-setup ") || request.hasPrefix("asset-profile-compose ") || request.hasPrefix("asset-profile-publish "))
                 ? 600
                 : 5
 

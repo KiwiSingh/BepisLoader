@@ -11,7 +11,10 @@ struct SteamacAssetModInstaller {
         return launchReport(package, game: game, root: root)
     }
     static func publish(_ package: AssetModPackage, game: SteamacGame, endpoint: SteamacBridgeEndpoint,
-                        bridge: SteamacBridge = .shared, payloadRoot: URL? = nil, profile: Data? = nil) throws -> String {
+                        bridge: SteamacBridge = .shared, payloadRoot: URL? = nil, profile: Data? = nil, reuseSources: Bool = false) throws -> String {
+        if reuseSources {
+            guard profile != nil, try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetProfileReuseV1) else { throw AssetModPackage.failure("Update Steamac and restart its VM for faster profile composition.") }
+        }
         guard game.appId == package.adapter.appId else {
             throw AssetModPackage.failure("This asset adapter does not support the selected game.")
         }
@@ -44,19 +47,19 @@ struct SteamacAssetModInstaller {
         let identifier = UUID().uuidString.lowercased()
         let stage = game.installPath + "/.bepis-asset-stage-" + identifier
         try bridge.createGuestDirectory(stage, endpoint: endpoint)
-        try bridge.createGuestDirectory(stage + "/assets", endpoint: endpoint)
+        if !reuseSources { try bridge.createGuestDirectory(stage + "/assets", endpoint: endpoint) }
         // Retain failed staging for review; never clean up an unknown guest path.
-        for (key, data) in package.files.sorted(by: { $0.key < $1.key }) {
+        for (key, data) in (reuseSources ? [:] : package.files).sorted(by: { $0.key < $1.key }) {
             let destination = stage + "/assets/" + key
             try bridge.createGuestDirectory((destination as NSString).deletingLastPathComponent, endpoint: endpoint)
             try bridge.writeGuestFile(data, to: destination, endpoint: endpoint)
         }
         for (key, data) in payloads { try bridge.writeGuestFile(data, to: stage + "/" + (key == "bepis-mvgl.asi" ? "adapter.payload" : "proxy.payload"), endpoint: endpoint) }
-        try bridge.writeGuestFile(try package.manifest, to: stage + "/manifest.json", endpoint: endpoint)
+        if !reuseSources { try bridge.writeGuestFile(try package.manifest, to: stage + "/manifest.json", endpoint: endpoint) }
         let root: String
         if let profile {
             try bridge.writeGuestFile(profile, to: stage + "/profile.json", endpoint: endpoint)
-            root = try bridge.publishAssetProfile(appId: game.appId, adapter: package.adapter.id, stage: stage, endpoint: endpoint)
+            root = try bridge.publishAssetProfile(appId: game.appId, adapter: package.adapter.id, stage: stage, endpoint: endpoint, reuseSources: reuseSources)
         } else {
             root = try bridge.commitAssetMod(appId: game.appId, adapter: package.adapter.id, stage: stage, endpoint: endpoint)
         }

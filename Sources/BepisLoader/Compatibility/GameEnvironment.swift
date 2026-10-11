@@ -177,6 +177,7 @@ enum GameEnvironmentCapability:
     case protonPrefixResolution
     case protonEnvironmentInspection
     case protonRuntimeAttestationV1
+    case assetProfileReuseV1
     case assetModProfilesV1
     case assetAudioBanksV1
     case assetMbeTablesV1

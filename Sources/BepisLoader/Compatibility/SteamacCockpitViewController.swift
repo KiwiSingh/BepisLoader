@@ -1111,7 +1111,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
             let existingOverrides = self.loaderOverrides[game.appId] ?? ""
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let verifiedPackages = try AssetModProfiles.packages(next, game: game, endpoint: endpoint, bridge: self.bridge)
+                    let verifiedPackages = try AssetModProfiles.packagesForApply(next, game: game, endpoint: endpoint, bridge: self.bridge)
                     let merge = try AssetModProfiles.merge(next, packages: verifiedPackages, adapter: adapter)
                     let managedReShade = try self.bridge.managedReShadeInstalled(game: game, endpoint: endpoint)
                     let report = try AssetModProfiles.apply(next, merge: merge, game: game, endpoint: endpoint, bridge: self.bridge, reshade: includeReShade || managedReShade, existingOverrides: existingOverrides)
@@ -1131,7 +1131,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 var profile = try AssetModProfiles.load(game: game, endpoint: endpoint, bridge: self.bridge)
-                let packages = try AssetModProfiles.packages(profile, game: game, endpoint: endpoint, bridge: self.bridge)
+                let packages = try AssetModProfiles.packagesForApply(profile, game: game, endpoint: endpoint, bridge: self.bridge)
                 for index in profile.mods.indices { profile.mods[index].enabled = false }
                 guard let adapter = AssetModAdapter.forGame(game.appId) else { throw AssetModPackage.failure("Unsupported asset adapter.") }
                 let merge = try AssetModProfiles.merge(profile, packages: packages, adapter: adapter)
