@@ -2,9 +2,9 @@
 
 ![BepisLoader Logo](BepisLogo.png)
 
-**BepisLoader 2.1** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
+**BepisLoader 2.3.1** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
 
-[Download BepisLoader 2.3.0](https://github.com/KiwiSingh/BepisLoader/releases/tag/v2.3.0) · [All releases](https://github.com/KiwiSingh/BepisLoader/releases)
+[Download BepisLoader 2.3.1](https://github.com/KiwiSingh/BepisLoader/releases/tag/v2.3.1) · [All releases](https://github.com/KiwiSingh/BepisLoader/releases)
 
 ---
 
@@ -30,6 +30,8 @@
 
 2.3.0 adds data-only music packages to the same asset profiles, with randomized HCA tracks and volume YAML compiled by Steamac Kiwi Build 7 (`assetAudioBanksV1`). Classic Looming Threat playback, volume and looping were confirmed in-game. Settings-only packages can override music volume through profile conflict priority without editing the original download. See [music support and tested limits](docs/AUDIO-MODS.md). The app-bundle audit passed. The latest release is linked above.
 
+2.3.1 adds automatic ReShade setup and a dedicated ReShade mod importer, ZIP/RAR/7z imports, 1 GiB mod/profile limits with 128 MiB files, guest-side profile composition and verified table/music reuse. Adding mods reads existing manifests before review. Pair it with [Steamac Kiwi Build 8](https://github.com/KiwiSingh/steamac/releases/tag/v1.7.6-kiwi.8) and restart its VM. Steam launch options remain a manual one-time step: copy the combined setting BepisLoader presents, preserving other environment settings and arguments. The app-bundle audit passed.
+
 The Steamac cockpit can add multiple asset mod folders and manage a persistent per-game profile. **Manage asset mods…** lists installed mods, enables/disables individual mods, removes them from the profile, and changes their priority. Mods lower in the list win conflicts; the Apply review lists every conflict and its winner.
 
 The matching Steamac build must advertise `assetModProfilesV1` (Kiwi Build 6). Applying a profile validates stored packages, builds an immutable combined snapshot and atomically switches the guest's `.bepis-assets-active` link. Set the reported Steam Launch Options once to this stable path; subsequent profile changes do not require new launch options. Keep Steam open, close the game before applying, then restart it. All-disabled profiles load no replacements. Old package folders and previous snapshots are retained.
@@ -49,7 +51,7 @@ Previous single-package installs are imported into the first profile **disabled*
 
 ### Asset-mod setup and limits
 
-1. Use a Steamac build advertising `assetModInstallV1` ([Steamac Kiwi Build 6](https://github.com/KiwiSingh/steamac/releases/tag/v1.7.6-kiwi.6)). Older bridges reject installation safely; copying the macOS app alone does not update the guest agent.
+1. Use a Steamac build advertising `assetModInstallV1` ([Steamac Kiwi Build 8](https://github.com/KiwiSingh/steamac/releases/tag/v1.7.6-kiwi.8)). Older bridges reject installation safely; copying the macOS app alone does not update the guest agent.
 2. Close the game, leave Steam open, select it in BepisLoader's Steamac cockpit, and choose **Install asset mod…**. Select a ZIP/RAR/7z archive or the extracted folder containing `ModConfig.json` and `dsts-loader/`. Archives are extracted automatically; filenames are preserved. No separate extraction utility is required.
 3. **Manual launch setting required:** copy the exact setting from BepisLoader's installation report into Steam → game Properties → Launch Options. It includes the installed asset path, executable hash, and `WINEDLLOVERRIDES='winmm=n,b'`. Preserve any existing options; conflicting Wine overrides need reconciliation. BepisLoader does not change Steam's settings automatically.
 4. Start the game with Steam's **Play** button. **Disable asset mods** parks the checked native adapter; assets are retained. Remove the BepisLoader launch setting when it is no longer needed.
@@ -60,7 +62,7 @@ Full Reloaded-II / managed-plugin initialization under ARM64 Proton remains unre
 
 ## 🛠 Installation & Usage
 
-1. **Download**: Download and extract [BepisLoader-v2.3.0-macOS-universal.zip](https://github.com/KiwiSingh/BepisLoader/releases/download/v2.3.0/BepisLoader-v2.3.0-macOS-universal.zip).
+1. **Download**: Download and extract [BepisLoader-v2.3.1-macOS-universal.zip](https://github.com/KiwiSingh/BepisLoader/releases/download/v2.3.1/BepisLoader-v2.3.1-macOS-universal.zip).
 2. **Select Game**: The app will scan your bottles automatically. If your game is on an external drive, use the **"+ Add Game → From Mac / External Drive"** option.
 3. **Install**: Click **"Install BepisLoader"**. It will download the correct BepInEx version, configure your Wine registry, and patch your compatibility layer's config files.
 4. **Add Mods**: Use **"+ Add Mod…"** to install `.dll` plugin files into the game's `BepInEx/plugins/` folder.
