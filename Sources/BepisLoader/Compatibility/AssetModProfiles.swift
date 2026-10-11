@@ -57,7 +57,7 @@ enum AssetModProfiles {
                 owners[normalized, default: []].append(duplicateNames.contains(mod.name) ? "\(mod.name) (\(mod.id.prefix(8)))" : mod.name)
             }
         }
-        guard files.count <= 4096, files.values.reduce(0, { $0 + $1.count }) <= 256 * 1024 * 1024 else {
+        guard files.count <= 4096, files.values.reduce(0, { $0 + $1.count }) <= 1024 * 1024 * 1024 else {
             throw AssetModPackage.failure("The combined active assets exceed the supported limits.")
         }
         return AssetProfileMerge(package: AssetModPackage(adapter: adapter, name: "Active asset mods", files: files),
@@ -83,9 +83,9 @@ enum AssetModProfiles {
                 // Inventory uses the stored JSON manifest; payloads are fetched and
                 // verified only for publication, never merely to display the manager.
                 if metadataOnly { files[key] = Data(); continue }
-                let bytes = try bridge.readGuestFile(at: mod.root + "/" + key, endpoint: endpoint, maximumSize: 64 * 1024 * 1024)
+                let bytes = try bridge.readGuestFile(at: mod.root + "/" + key, endpoint: endpoint, maximumSize: 128 * 1024 * 1024)
                 total += bytes.count
-                guard total <= 256 * 1024 * 1024, AssetModPackage.hash(bytes) == hash else {
+                guard total <= 1024 * 1024 * 1024, AssetModPackage.hash(bytes) == hash else {
                     throw AssetModPackage.failure("Stored assets changed or the profile exceeds the supported snapshot limit.")
                 }
                 files[key] = bytes
@@ -94,8 +94,12 @@ enum AssetModProfiles {
         }
         return result
     }
+    static func packagesForApply(_ profile: AssetModProfile, game: SteamacGame, endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared) throws -> [String: AssetModPackage] {
+        let reuse = try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetProfileReuseV1)
+        return try packages(profile, game: game, endpoint: endpoint, bridge: bridge, metadataOnly: reuse)
+    }
     static func apply(_ profile: AssetModProfile, merge: AssetProfileMerge, game: SteamacGame,
-                      endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared) throws -> String {
+                      endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared, reshade: Bool = false, existingOverrides: String = "") throws -> String {
         if merge.package.files.keys.contains(where: { $0.hasPrefix("Ryo/Digimon Story Time Stranger/bgm/") }),
            !(try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetAudioBanksV1)) {
             throw AssetModPackage.failure("These mods require music-bank compilation. Update Steamac, restart its VM, then refresh the connection.")
@@ -105,7 +109,7 @@ enum AssetModProfiles {
             throw AssetModPackage.failure("These mods require MBE table compilation. Install the updated Steamac build, restart its VM, then refresh the connection.")
         }
         let root = try SteamacAssetModInstaller.publish(merge.package, game: game, endpoint: endpoint,
-            bridge: bridge, profile: JSONEncoder().encode(profile))
-        return "Applied \(profile.mods.filter(\.enabled).count) enabled asset mods.\n\n" + SteamacAssetModInstaller.launchReport(merge.package, game: game, root: root)
+            bridge: bridge, profile: JSONEncoder().encode(profile), reuseSources: bridge.handshake(endpoint: endpoint).capabilities.supports(.assetProfileReuseV1))
+        return "Applied \(profile.mods.filter(\.enabled).count) enabled asset mods.\n\n" + SteamacAssetModInstaller.launchReport(merge.package, game: game, root: root, reshade: reshade, existingOverrides: existingOverrides)
     }
 }

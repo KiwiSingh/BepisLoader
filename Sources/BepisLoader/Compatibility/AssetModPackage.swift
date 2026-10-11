@@ -68,7 +68,7 @@ struct AssetModPackage {
             throw failure("Mod asset folders cannot redirect through symbolic links.")
         }
         for case let file as URL in walker {
-            if !prefix.isEmpty && file.lastPathComponent == ".DS_Store" { continue }
+            if file.lastPathComponent == ".DS_Store" { continue }
             entries += 1
             guard entries <= 8192 else { throw failure("Asset folder contains too many entries.") }
             let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey])
@@ -83,7 +83,7 @@ struct AssetModPackage {
                 throw failure("Unsupported or conflicting asset path: \(key)")
             }
             let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            guard size > 0, size <= 64 * 1024 * 1024, total + size <= 256 * 1024 * 1024, files.count < 4096 else {
+            guard size > 0, size <= 128 * 1024 * 1024, total + size <= 1024 * 1024 * 1024, files.count < 4096 else {
                 throw failure("This asset mod exceeds the supported size limits.")
             }
             let data = try boundedRead(file, maximum: size)

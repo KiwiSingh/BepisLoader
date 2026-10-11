@@ -466,6 +466,8 @@ final class SteamacBridge {
                 capabilities.insert(.assetAudioBanksV1)
             case "assetMbeTablesV1":
                 capabilities.insert(.assetMbeTablesV1)
+            case "assetProfileReuseV1":
+                capabilities.insert(.assetProfileReuseV1)
             case "assetModProfilesV1":
                 capabilities.insert(.assetModProfilesV1)
             case "assetModInstallV1":
@@ -1257,6 +1259,39 @@ final class SteamacBridge {
     /// Guest-enforced atomic publication of a staged BepInEx DLL.
     /// Requires pluginCommitV1 on the guest; no fs-rename fallback.
     /// Dedicated checked publication; never falls back to generic filesystem rename.
+    func managedReShadeInstalled(game: SteamacGame, endpoint: SteamacBridgeEndpoint) throws -> Bool {
+        guard try handshake(endpoint: endpoint).capabilities.supports(.reShadeInstallV1),
+              let install = try gameInstall(for: game, endpoint: endpoint), case .guest(let executable) = install.environmentExecutablePath else { return false }
+        let response = try request("reshade-state \(game.appId) \(encodeProtocolField(executable))", endpoint: endpoint)
+        guard ["reshade-state installed", "reshade-state absent"].contains(response) else { throw SteamacBridgeError.malformedResponse(response) }
+        return response == "reshade-state installed"
+    }
+    func existingReShadeRuntime(appId: UInt32, executable: String, endpoint: SteamacBridgeEndpoint) throws -> String? {
+        let response = try request("reshade-runtime \(appId) \(encodeProtocolField(executable))", endpoint: endpoint)
+        let fields = response.split(separator: " ")
+        guard fields.count == 2, fields[0] == "reshade-runtime" else { throw SteamacBridgeError.malformedResponse(response) }
+        if fields[1] == "absent" { return nil }
+        guard fields[1].count == 64, fields[1].allSatisfy({ $0.isHexDigit }) else { throw SteamacBridgeError.malformedResponse(response) }
+        return String(fields[1])
+    }
+    func reShadeTarget(appId: UInt32, executable: String, endpoint: SteamacBridgeEndpoint) throws -> (directory: String, executableHash: String) {
+        guard try handshake(endpoint: endpoint).capabilities.supports(.reShadeInstallV1) else {
+            throw ReShadePackage.failure("Update Steamac and restart its VM to install ReShade.")
+        }
+        let response = try request("reshade-target \(appId) \(encodeProtocolField(executable))", endpoint: endpoint)
+        let fields = response.split(separator: " ")
+        guard fields.count == 3, fields[0] == "reshade-target", let directory = decodeProtocolField(String(fields[1])),
+              fields[2].count == 64, fields[2].allSatisfy({ $0.isHexDigit }) else { throw SteamacBridgeError.malformedResponse(response) }
+        return (directory, String(fields[2]))
+    }
+    func commitReShade(appId: UInt32, stage: String, endpoint: SteamacBridgeEndpoint) throws {
+        guard try handshake(endpoint: endpoint).capabilities.supports(.reShadeInstallV1) else {
+            throw ReShadePackage.failure("Update Steamac and restart its VM to install ReShade.")
+        }
+        let response = try request("reshade-install \(appId) \(encodeProtocolField(stage))", endpoint: endpoint)
+        guard response == "reshade-installed" else { throw SteamacBridgeError.malformedResponse(response) }
+    }
+
     func commitAssetMod(appId: UInt32, adapter: String, stage: String,
                         endpoint: SteamacBridgeEndpoint) throws -> String {
         let hello = try handshake(endpoint: endpoint)
@@ -1284,8 +1319,9 @@ final class SteamacBridge {
         return Data(decoded.utf8)
     }
 
-    func publishAssetProfile(appId: UInt32, adapter: String, stage: String, endpoint: SteamacBridgeEndpoint) throws -> String {
-        let response = try request("asset-profile-publish \(appId) \(encodeProtocolField(adapter)) \(encodeProtocolField(stage))", endpoint: endpoint)
+    func publishAssetProfile(appId: UInt32, adapter: String, stage: String, endpoint: SteamacBridgeEndpoint, reuseSources: Bool = false) throws -> String {
+        let command = reuseSources ? "asset-profile-compose" : "asset-profile-publish"
+        let response = try request("\(command) \(appId) \(encodeProtocolField(adapter)) \(encodeProtocolField(stage))", endpoint: endpoint)
         let parts = response.split(separator: " ")
         guard parts.count == 2, parts[0] == "asset-profile-published", let root = decodeProtocolField(String(parts[1])) else {
             throw SteamacBridgeError.malformedResponse(response)
@@ -2535,11 +2571,11 @@ final class SteamacBridge {
             Darwin.close(fd)
         }
 
-        // 42A-1: Reloaded-II setup can take several minutes
-        // under Proton. Ordinary bridge requests retain their
+        // Setup and checked profile compilation can take several minutes.
+        // Ordinary bridge requests retain their
         // existing five-second receive timeout.
         let receiveTimeoutSeconds: Int =
-            request.hasPrefix("reloadedii-setup ")
+            (request.hasPrefix("reloadedii-setup ") || request.hasPrefix("asset-profile-compose ") || request.hasPrefix("asset-profile-publish "))
                 ? 600
                 : 5
 

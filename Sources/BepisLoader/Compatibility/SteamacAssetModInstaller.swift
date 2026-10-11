@@ -3,7 +3,7 @@ import Foundation
 /// Shared asset-mod entry point, with game-specific adapters behind it.
 struct SteamacAssetModInstaller {
     static let payloadHashes = [
-        "bepis-mvgl.asi": "ada24eed6afad06bc4a1682928a6cae1405814615b421afcb0216cb58dfffdd0",
+        "bepis-mvgl.asi": "134051c0ecb7821e4375eb2c65a977b360fd1746e36fcba8c7da3220ebe558e1",
         "winmm.dll": "412d410eb6091fb483b150bea1b13f8aeb746be8c62802ea7e081fd15ea64b69"]
     static func install(_ package: AssetModPackage, game: SteamacGame,
                         endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared, payloadRoot: URL? = nil) throws -> String {
@@ -11,7 +11,10 @@ struct SteamacAssetModInstaller {
         return launchReport(package, game: game, root: root)
     }
     static func publish(_ package: AssetModPackage, game: SteamacGame, endpoint: SteamacBridgeEndpoint,
-                        bridge: SteamacBridge = .shared, payloadRoot: URL? = nil, profile: Data? = nil) throws -> String {
+                        bridge: SteamacBridge = .shared, payloadRoot: URL? = nil, profile: Data? = nil, reuseSources: Bool = false) throws -> String {
+        if reuseSources {
+            guard profile != nil, try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetProfileReuseV1) else { throw AssetModPackage.failure("Update Steamac and restart its VM for faster profile composition.") }
+        }
         guard game.appId == package.adapter.appId else {
             throw AssetModPackage.failure("This asset adapter does not support the selected game.")
         }
@@ -44,29 +47,29 @@ struct SteamacAssetModInstaller {
         let identifier = UUID().uuidString.lowercased()
         let stage = game.installPath + "/.bepis-asset-stage-" + identifier
         try bridge.createGuestDirectory(stage, endpoint: endpoint)
-        try bridge.createGuestDirectory(stage + "/assets", endpoint: endpoint)
+        if !reuseSources { try bridge.createGuestDirectory(stage + "/assets", endpoint: endpoint) }
         // Retain failed staging for review; never clean up an unknown guest path.
-        for (key, data) in package.files.sorted(by: { $0.key < $1.key }) {
+        for (key, data) in (reuseSources ? [:] : package.files).sorted(by: { $0.key < $1.key }) {
             let destination = stage + "/assets/" + key
             try bridge.createGuestDirectory((destination as NSString).deletingLastPathComponent, endpoint: endpoint)
             try bridge.writeGuestFile(data, to: destination, endpoint: endpoint)
         }
         for (key, data) in payloads { try bridge.writeGuestFile(data, to: stage + "/" + (key == "bepis-mvgl.asi" ? "adapter.payload" : "proxy.payload"), endpoint: endpoint) }
-        try bridge.writeGuestFile(try package.manifest, to: stage + "/manifest.json", endpoint: endpoint)
+        if !reuseSources { try bridge.writeGuestFile(try package.manifest, to: stage + "/manifest.json", endpoint: endpoint) }
         let root: String
         if let profile {
             try bridge.writeGuestFile(profile, to: stage + "/profile.json", endpoint: endpoint)
-            root = try bridge.publishAssetProfile(appId: game.appId, adapter: package.adapter.id, stage: stage, endpoint: endpoint)
+            root = try bridge.publishAssetProfile(appId: game.appId, adapter: package.adapter.id, stage: stage, endpoint: endpoint, reuseSources: reuseSources)
         } else {
             root = try bridge.commitAssetMod(appId: game.appId, adapter: package.adapter.id, stage: stage, endpoint: endpoint)
         }
         guard root == (profile == nil ? game.installPath + "/.bepis-asset-mod-" + identifier + "/assets" : game.installPath + "/.bepis-assets-active") else { throw AssetModPackage.failure("Guest publication returned an unexpected asset path; installation retained for review.") }
         return root
     }
-    static func launchReport(_ package: AssetModPackage, game: SteamacGame, root: String) -> String {
-        let windowsRoot = "Z:" + root
-        let quotedRoot = "'" + windowsRoot.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-        let options = "BEPIS_MVGL_ASSET_ROOT=\(quotedRoot) BEPIS_MVGL_EXE_SHA256=\(package.adapter.executableSHA256) WINEDLLOVERRIDES='winmm=n,b' %command%"
-        return "Installed \(package.name) for \(game.name) (\(package.files.count) assets).\n\nOne-time setup: copy this into Steam → Properties → Launch Options, then use Play:\n\(options)\n\nPreserve your existing launch options when combining settings; an existing Wine override may conflict. This path stays the same when managing asset mods. Close the game before applying changes, then restart it."
+    static func launchReport(_ package: AssetModPackage, game: SteamacGame, root: String, reshade: Bool = false, existingOverrides: String = "") -> String {
+        let options: String
+        do { options = try SteamacLaunchOptions.make(assetRoot: root, executableHash: package.adapter.executableSHA256, reshade: reshade, existingOverrides: existingOverrides) }
+        catch { return "Assets installed. Launch options could not be composed: \(error.localizedDescription)" }
+        return "Installed \(package.name) for \(game.name) (\(package.files.count) assets).\n\nOne-time setup: copy this into Steam → Properties → Launch Options, then use Play:\n\(options)\n\nUse one WINEDLLOVERRIDES assignment for all loaders. Use Launch options… to include ReShade and merge other loader overrides. Preserve other existing launch settings. This path stays the same when managing asset mods. Close the game before applying changes, then restart it."
     }
 }

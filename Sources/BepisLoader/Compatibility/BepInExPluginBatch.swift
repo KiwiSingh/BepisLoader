@@ -16,9 +16,9 @@ enum BepInExPluginBatch {
             let info = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             guard info.isRegularFile == true, info.isSymbolicLink != true else { throw AssetModPackage.failure("Plugin sources must be regular files.") }
             let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
-            let bytes = try file.read(upToCount: 64 * 1024 * 1024 + 1) ?? Data(); total += bytes.count
-            guard !bytes.isEmpty, bytes.count <= 64 * 1024 * 1024, total <= 256 * 1024 * 1024 else {
-                throw AssetModPackage.failure("Plugins must be nonempty, at most 64 MiB each, and at most 256 MiB combined.")
+            let bytes = try file.read(upToCount: 128 * 1024 * 1024 + 1) ?? Data(); total += bytes.count
+            guard !bytes.isEmpty, bytes.count <= 128 * 1024 * 1024, total <= 256 * 1024 * 1024 else {
+                throw AssetModPackage.failure("Plugins must be nonempty, at most 128 MiB each, and at most 256 MiB combined.")
             }
             return BepInExPluginSnapshot(filename: name, data: bytes)
         }
