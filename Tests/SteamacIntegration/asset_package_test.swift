@@ -44,6 +44,9 @@ import Foundation
         try Data([1]).write(to: music.appendingPathComponent(".DS_Store"))
         let audio = try AssetModPackage.inspect(folder: root, appId: 1984270)
         precondition(audio.files.count == 2 && audio.files["Ryo/Digimon Story Time Stranger/bgm/bgm801.acb/bgm801.cue/Track name.hca"] == Data([1,2,3]))
+        try fm.removeItem(at: music.appendingPathComponent("Track name.hca"))
+        let volumeOnly = try AssetModPackage.inspect(folder: root, appId: 1984270)
+        precondition(volumeOnly.files.count == 1 && volumeOnly.files["Ryo/Digimon Story Time Stranger/bgm/bgm801.acb/bgm801.cue/Track name.yaml"] == Data("volume: 0.3".utf8), "Settings-only overlays must retain exact YAML keys and bytes")
         config["ModDependencies"] = ["unknown-code-loader"]; try save(); reject()
         print("PASS: exact IMG filenames, distinct IMG/DDS filenames, raw IMG bytes, valid DDS, manifest, unsupported game, code payload, unknown dependency, wrong game, symlink, arbitrary extensions, empty asset rejection, immutable snapshot")
     }

@@ -28,6 +28,8 @@
 
 ## Asset profiles (v2.2.0)
 
+Upcoming 2.3.0 adds data-only music packages to the same asset profiles, with randomized HCA tracks and volume YAML compiled by Steamac Kiwi Build 7 (`assetAudioBanksV1`). Classic Looming Threat playback, volume and looping were confirmed in-game. Settings-only packages can override music volume through profile conflict priority without editing the original download. See [music support and tested limits](docs/AUDIO-MODS.md). These changes remain in development pending a fresh app-bundle audit; the latest published release is still linked above.
+
 The Steamac cockpit can add multiple asset mod folders and manage a persistent per-game profile. **Manage asset mods…** lists installed mods, enables/disables individual mods, removes them from the profile, and changes their priority. Mods lower in the list win conflicts; the Apply review lists every conflict and its winner.
 
 The matching Steamac build must advertise `assetModProfilesV1` (Kiwi Build 6). Applying a profile validates stored packages, builds an immutable combined snapshot and atomically switches the guest's `.bepis-assets-active` link. Set the reported Steam Launch Options once to this stable path; subsequent profile changes do not require new launch options. Keep Steam open, close the game before applying, then restart it. All-disabled profiles load no replacements. Old package folders and previous snapshots are retained.
