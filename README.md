@@ -182,3 +182,5 @@ ReShade installer validation: package and installer regression checks passed, in
 ### Faster Apply
 
 The matching Steamac guest composes profiles locally: Apply reads stored package manifests and sends the profile settings, leaving existing mod payloads in the VM. Tables and music banks reuse verified outputs from the previous active profile when their compiler, original game data and ordered inputs match. Unchanged profiles retain their active snapshot; changing priorities or enablement still updates the saved profile. Source/output verification and atomic activation remain enforced. Older guests fall back to the full-transfer flow. The first Apply after upgrading populates compilation receipts; subsequent compatible changes reuse them.
+
+Adding asset mods reads installed manifests rather than downloading their payloads before review. Import progress identifies each selected archive/folder. Apply performs the full guest verification and combined-size check before activation.

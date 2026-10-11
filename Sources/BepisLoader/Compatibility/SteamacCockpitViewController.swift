@@ -970,14 +970,18 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let profile = try AssetModProfiles.load(game: game, endpoint: endpoint, bridge: self.bridge)
-                let packages = try folders.map { source in try ModArchive.inspect(source: source) { try AssetModPackage.inspect(folder: $0, appId: game.appId) } }
-                var cache = try AssetModProfiles.packages(profile, game: game, endpoint: endpoint, bridge: self.bridge)
-                guard cache.values.reduce(0, { $0 + $1.totalBytes }) + packages.reduce(0, { $0 + $1.totalBytes }) <= 1024 * 1024 * 1024 else {
-                    throw AssetModPackage.failure("The stored packages in this profile would exceed 1 GiB. Remove unused mods from the profile first.")
+                let packages = try folders.enumerated().map { index, source in
+                    DispatchQueue.main.async { self.showReport("Checking mod \(index + 1) of \(folders.count): \(source.lastPathComponent)…") }
+                    return try ModArchive.inspect(source: source) { try AssetModPackage.inspect(folder: $0, appId: game.appId) }
+                }
+                DispatchQueue.main.async { self.showReport("Reading installed mod manifests…") }
+                var cache = try AssetModProfiles.packages(profile, game: game, endpoint: endpoint, bridge: self.bridge, metadataOnly: true)
+                guard packages.reduce(0, { $0 + $1.totalBytes }) <= 1024 * 1024 * 1024 else {
+                    throw AssetModPackage.failure("The selected new packages exceed 1 GiB. Select fewer mods at once.")
                 }
                 DispatchQueue.main.async {
                     let review = NSAlert(); review.messageText = "Add \(packages.count) asset mods?"
-                    review.informativeText = packages.map { "\($0.name): \($0.files.count) assets" }.joined(separator: "\n") + "\n\nPackages are stored in the guest. You will review the combined profile before activation."
+                    review.informativeText = packages.map { "\($0.name): \($0.files.count) assets" }.joined(separator: "\n") + "\n\nPackages are stored in the guest. Review the combined profile before activation; Apply verifies all stored files and enforces its 1 GiB size limit."
                     review.addButton(withTitle: "Add mods"); review.addButton(withTitle: "Cancel")
                     guard review.runModal() == .alertFirstButtonReturn else { self.pluginOperationBusy = false; self.updatePluginButtons(); return }
                     DispatchQueue.global(qos: .userInitiated).async {
