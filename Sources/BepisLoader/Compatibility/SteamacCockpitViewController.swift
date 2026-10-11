@@ -32,7 +32,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     private var assetProfileWindow: AssetModProfileWindowController?
     private let manageAssetButton = NSButton(title: "Manage asset mods…", target: nil, action: nil)
     private let disableAssetButton = NSButton(title: "Disable asset mods", target: nil, action: nil)
-    private let installReShadeButton = NSButton(title: "Install ReShade…", target: nil, action: nil)
+    private let installReShadeButton = NSButton(title: "Install ReShade mod…", target: nil, action: nil)
     private let launchOptionsButton = NSButton(title: "Launch options…", target: nil, action: nil)
     private var reshadeGames: Set<UInt32> = []
     private var loaderOverrides: [UInt32: String] = [:]
@@ -990,7 +990,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     @objc private func installReShade() {
         guard !pluginOperationBusy, let game = selectedPluginGame, let endpoint = activeEndpoint else { return }
         let panel = NSOpenPanel(); panel.title = "Choose a ReShade mod folder"
-        panel.message = "Extract ZIP/RAR archives first. Select the folder containing the preset .ini, reshade-shaders and optional x64 dxgi.dll. Preset-only packages require ReShade already installed."
+        panel.message = "Choose an extracted ReShade mod folder containing its preset and shaders. This imports a mod package; it does not download ReShade itself. Packages without the ReShade runtime require it already installed. Extract ZIP/RAR archives first."
         panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let folder = panel.url else { return }
         pluginOperationBusy = true; updatePluginButtons(); showReport("Inspecting ReShade package…")
@@ -998,7 +998,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
             do {
                 let inspected = try ReShadePackage.inspect(folder: folder)
                 DispatchQueue.main.async {
-                    let review = NSAlert(); review.messageText = "Install ReShade for \(game.name)?"
+                    let review = NSAlert(); review.messageText = "Install ReShade mod for \(game.name)?"
                     review.informativeText = "Close the game first. This installs \(inspected.files.count) files beside its executable. Existing unrelated files are preserved; conflicting unmanaged or edited files stop installation. Microsoft's tested shader compiler is downloaded if absent from the package."
                         + (inspected.addons.isEmpty ? "" : "\n\nThis package includes executable addons: " + inspected.addons.joined(separator: ", ") + ". Install only if you trust the author.")
                     let preset = NSPopUpButton(); preset.addItems(withTitles: inspected.presets)
