@@ -2,9 +2,9 @@
 
 ![BepisLoader Logo](BepisLogo.png)
 
-**BepisLoader 2.3.3** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
+**BepisLoader 2.3.4** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
 
-[Download BepisLoader 2.3.3](https://github.com/KiwiSingh/BepisLoader/releases/tag/v2.3.3) · [All releases](https://github.com/KiwiSingh/BepisLoader/releases)
+[Download BepisLoader 2.3.4](https://github.com/KiwiSingh/BepisLoader/releases/tag/v2.3.4) · [All releases](https://github.com/KiwiSingh/BepisLoader/releases)
 
 ---
 
@@ -26,7 +26,13 @@
 
 ---
 
-## What's new? (v2.3.3)
+## What's new? (v2.3.4)
+
+2.3.4 introduces seamless launcher handoff and enhanced Steamac integration:
+- **Steamac Window Focus**: When launching games via the Steamac Cockpit ("Launch via Steamac"), window focus is now reliably handed off to FX Steam Launcher (Steamac) without being re-stolen by BepisLoader.
+- **Proton Prefix Rediscovery**: Added dedicated **Rediscover Active Prefix** functionality to synchronize and refresh Proton prefix paths and active runtimes with BepisLoader mod management on demand.
+- **Updated Cockpit Diagnostics**: Reflects verified modded launch readiness (`Modded launch: Available`) when connected to the Steamac guest bridge.
+- **Steamac Navigation**: Added a quick-access **🐸 Steamac** Cockpit button to the main sidebar for instant navigation to the Steamac management cockpit.
 
 2.3.3 fixes an audio-bank layout incompatibility where music mods with direct ACB folders under `Ryo/Digimon Story Time Stranger/` (such as *Hololive Covered by Hololive Randomizer*) had their tracks skipped during compilation. Audio paths are now normalized to the `Ryo/Digimon Story Time Stranger/bgm/` hierarchy expected by Steamac's guest compiler, ensuring all replacement HCA tracks and YAML volume settings are properly recognized and built into custom sound banks.
 

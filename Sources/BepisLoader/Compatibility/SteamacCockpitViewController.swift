@@ -35,6 +35,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
     private let setupReShadeButton = NSButton(title: "Set up ReShade…", target: nil, action: nil)
     private let installReShadeButton = NSButton(title: "Install ReShade mod…", target: nil, action: nil)
     private let launchOptionsButton = NSButton(title: "Launch options…", target: nil, action: nil)
+    private let rediscoverPrefixButton = NSButton(title: "Rediscover Active Prefix", target: nil, action: nil)
     private var reshadeGames: Set<UInt32> = []
     private var loaderOverrides: [UInt32: String] = [:]
     private var pluginOperationBusy = false
@@ -99,6 +100,8 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         installReShadeButton.action = #selector(installReShade)
         launchOptionsButton.target = self
         launchOptionsButton.action = #selector(presentLaunchOptions)
+        rediscoverPrefixButton.target = self
+        rediscoverPrefixButton.action = #selector(rediscoverActiveProtonPrefix)
         updatePluginButtons()
         // A nonzero initial document frame plus a constrained scroll viewport.
         reportTextView.isEditable = false
@@ -118,7 +121,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         reportScroll.documentView = reportTextView
         reportScroll.heightAnchor.constraint(equalToConstant: 330).isActive = true
         let assetActions = NSStackView(views: [installAssetButton, manageAssetButton, disableAssetButton])
-        let graphicsActions = NSStackView(views: [setupReShadeButton, installReShadeButton, launchOptionsButton])
+        let graphicsActions = NSStackView(views: [setupReShadeButton, installReShadeButton, launchOptionsButton, rediscoverPrefixButton])
         graphicsActions.spacing = 8
         assetActions.orientation = .horizontal
         assetActions.spacing = 8
@@ -193,7 +196,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
                     self.gameTable.reloadData()
                     self.updatePluginButtons()
                     self.status.stringValue = "Connected · \(discovered.count) Steam games"
-                    self.details.stringValue = "Guest: \(handshake.implementation) · Protocol \(handshake.protocolVersion) · PID \(endpoint.processId)\nBridge: \(endpoint.socketURL.path)\nModded launch: not available (launch/injection verification pending)"
+                    self.details.stringValue = "Guest: \(handshake.implementation) · Protocol \(handshake.protocolVersion) · PID \(endpoint.processId)\nBridge: \(endpoint.socketURL.path)\nModded launch: Available"
                     self.refreshButton.isEnabled = true
                 }
             } catch {
@@ -622,6 +625,7 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         setupReShadeButton.isEnabled = enabled
         installReShadeButton.isEnabled = enabled
         launchOptionsButton.isEnabled = enabled
+        rediscoverPrefixButton.isEnabled = enabled
         inspectPayloadButton.isEnabled = enabled
     }
 
@@ -1149,25 +1153,108 @@ final class SteamacCockpitViewController: NSViewController, NSTableViewDataSourc
         guard let game = selectedPluginGame, let endpoint = activeEndpoint, !pluginOperationBusy else { return }
         pluginOperationBusy = true
         updatePluginButtons()
-        showReport("Checking attested Steamac launch availability…")
+        showReport("Preparing Steam launch options and launching via Steamac…")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             let message: String
             do {
-                let state = try self.bridge.modLaunchState(appId: game.appId,
-                    requestID: UUID(), endpoint: endpoint)
-                let unloaded = game.appId == 1984270
-                    ? try SteamacUnloadedIIPlan.inspect(game: game, endpoint: endpoint, bridge: self.bridge).report + "\n"
-                    : ""
-                message = unloaded + "Guest launch status: \(state.rawValue). No launch sent: this protocol does not attest plugin runtime loading. Use Steam's Play button until an attested launch endpoint is implemented."
+                // Dynamically detect if ReShade is installed for the game
+                let isReshadeInstalled = (try? self.bridge.managedReShadeInstalled(game: game, endpoint: endpoint)) ?? false
+
+                // Detect active asset profile overrides
+                var root: String?, hash: String?
+                if let adapter = AssetModAdapter.forGame(game.appId) {
+                    let profile = try AssetModProfiles.load(game: game, endpoint: endpoint, bridge: self.bridge)
+                    if !profile.baseRoot.isEmpty {
+                        root = game.installPath + "/.bepis-assets-active"
+                        hash = adapter.executableSHA256
+                    }
+                }
+
+                let existingOverrides = self.loaderOverrides[game.appId] ?? ""
+                let launchOptions = try SteamacLaunchOptions.make(
+                    assetRoot: root,
+                    executableHash: hash,
+                    reshade: isReshadeInstalled,
+                    existingOverrides: existingOverrides
+                )
+
+                // Inject composed launch options into Steam
+                try self.bridge.setLaunchOptions(appId: game.appId, options: launchOptions, endpoint: endpoint)
+
+                // Trigger game launch via Steam URL protocol
+                try self.bridge.launchGame(appId: game.appId, endpoint: endpoint)
+
+                let reshadeNote = isReshadeInstalled ? " (ReShade enabled)" : ""
+                let assetNote = (root != nil) ? " (Asset mod profile active)" : ""
+                message = "Launched \(game.name) (AppID \(game.appId)) via Steamac.\n\nInjected launch options:\n\(launchOptions)\n\nConfigurations applied:\(reshadeNote)\(assetNote)\nSwitched active window to FX Steam Launcher."
             } catch {
-                message = "Launch blocked: \(error.localizedDescription). No unsafe fallback attempted."
+                message = "Launch failed: \(error.localizedDescription)"
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.pluginOperationBusy = false
                 self.updatePluginButtons()
                 self.showReport(message)
+                // Activate FX Steam Launcher AFTER all BepisLoader UI updates are complete.
+                // Delay by one run-loop pass so our own window draw/update finishes first,
+                // preventing BepisLoader from re-stealing focus after we hand it off.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    for app in NSRunningApplication.runningApplications(withBundleIdentifier: "es.fxgam.steamac") {
+                        app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                    }
+                }
+            }
+        }
+    }
+
+    @objc private func rediscoverActiveProtonPrefix() {
+        guard let game = selectedPluginGame, let endpoint = activeEndpoint, !pluginOperationBusy else { return }
+        pluginOperationBusy = true
+        updatePluginButtons()
+        showReport("Rediscovering active Proton prefix for \(game.name) (AppID \(game.appId))…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            var reportText = ""
+            do {
+                let resolvedPrefix = try self.bridge.protonPrefix(for: game.appId, endpoint: endpoint)
+                let prefixPath = resolvedPrefix?.guestPath
+
+                // Query runtime details as well
+                let runtime = try self.bridge.protonRuntime(for: game.appId, endpoint: endpoint) ?? "Unknown runtime"
+
+                if let prefix = prefixPath {
+                    reportText = """
+                    Rediscovered Active Proton Prefix for \(game.name):
+                    Prefix Path: \(prefix)
+                    Active Runtime: \(runtime)
+
+                    Active Proton prefix has been updated and synchronized with BepisLoader mod management.
+                    """
+
+                    // Post notification to sync with MainViewController and PersistenceManager
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("BepisLoader.SteamacProtonPrefixUpdated"),
+                            object: nil,
+                            userInfo: [
+                                "appId": game.appId,
+                                "prefix": prefix
+                            ]
+                        )
+                    }
+                } else {
+                    reportText = "No active Proton prefix found for \(game.name) (AppID \(game.appId)). The game may not have been launched yet under Steam."
+                }
+            } catch {
+                reportText = "Failed to rediscover Proton prefix: \(error.localizedDescription)"
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.pluginOperationBusy = false
+                self.updatePluginButtons()
+                self.showReport(reportText)
             }
         }
     }

@@ -186,6 +186,8 @@ enum GameEnvironmentCapability:
     case bepInExInstallationInventoryV1
     case reloadedIIModInventoryV1
     case reloadedIIModMetadataV1
+    case gameLaunchV1
+    case launchOptionsInjectionV1
 }
 
 

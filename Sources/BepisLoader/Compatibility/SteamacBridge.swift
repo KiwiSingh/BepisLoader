@@ -466,6 +466,8 @@ final class SteamacBridge {
                 capabilities.insert(.assetAudioBanksV1)
             case "assetMbeTablesV1":
                 capabilities.insert(.assetMbeTablesV1)
+            case "reShadeInstallV1":
+                capabilities.insert(.reShadeInstallV1)
             case "assetProfileReuseV1":
                 capabilities.insert(.assetProfileReuseV1)
             case "assetModProfilesV1":
@@ -474,6 +476,10 @@ final class SteamacBridge {
                 capabilities.insert(.assetModInstallV1)
             case "bepInExInstallationInventoryV1":
                 capabilities.insert(.bepInExInstallationInventoryV1)
+            case "gameLaunchV1":
+                capabilities.insert(.gameLaunchV1)
+            case "launchOptionsInjectionV1":
+                capabilities.insert(.launchOptionsInjectionV1)
 
             case "reloadedIIModInventoryV1":
                 capabilities.insert(.reloadedIIModInventoryV1)
@@ -3495,6 +3501,40 @@ final class SteamacBridge {
             throw SteamacBridgeError.malformedResponse(response)
         }
         return state
+    }
+
+    func setLaunchOptions(
+        appId: UInt32,
+        options: String,
+        endpoint: SteamacBridgeEndpoint
+    ) throws {
+        let encoded = encodeProtocolField(options)
+        let response = try request(
+            "launch-options-set \(appId) \(encoded)", endpoint: endpoint
+        )
+        let fields = response.split(separator: " ")
+        guard fields.count >= 2,
+              fields[0] == "launch-options-set",
+              fields[1] == Substring(String(appId))
+        else {
+            throw SteamacBridgeError.malformedResponse(response)
+        }
+    }
+
+    func launchGame(
+        appId: UInt32,
+        endpoint: SteamacBridgeEndpoint
+    ) throws {
+        let response = try request(
+            "game-launch \(appId)", endpoint: endpoint
+        )
+        let fields = response.split(separator: " ")
+        guard fields.count == 2,
+              fields[0] == "game-launched",
+              fields[1] == Substring(String(appId))
+        else {
+            throw SteamacBridgeError.malformedResponse(response)
+        }
     }
 
 }

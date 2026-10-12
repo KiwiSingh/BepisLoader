@@ -241,6 +241,52 @@ struct GameInstall: Identifiable, Hashable, Codable {
         self.unityType = .unknown
     }
 
+    init(
+        id: UUID,
+        name: String,
+        executablePath: URL,
+        bottle: Bottle,
+        backing: GameInstallBacking,
+        environmentExecutablePath: GameEnvironmentPath,
+        environment: GameEnvironment,
+        overrideLayer: CompatibilityLayer? = nil,
+        unityType: UnityType = .unknown
+    ) {
+        self.id = id
+        self.name = name
+        self.executablePath = executablePath
+        self.bottle = bottle
+        self.backing = backing
+        self.environmentExecutablePath = environmentExecutablePath
+        self.environment = environment
+        self.overrideLayer = overrideLayer
+        self.unityType = unityType
+    }
+
+    func updatingProtonPrefix(_ newPrefix: String?) -> GameInstall {
+        var copy = self
+        if case .steamac(let appId, let installPath, let libraryPath, _) = self.backing {
+            copy = GameInstall(
+                id: self.id,
+                name: self.name,
+                executablePath: self.executablePath,
+                bottle: self.bottle,
+                backing: GameInstallBacking.steamac(
+                    appId: appId,
+                    installPath: installPath,
+                    libraryPath: libraryPath,
+                    protonPrefix: newPrefix
+                ),
+                environmentExecutablePath: self.environmentExecutablePath,
+                environment: self.environment,
+                overrideLayer: self.overrideLayer,
+                unityType: self.unityType
+            )
+        }
+        return copy
+    }
+
+
 
     var gameDirectory: URL {
         executablePath

@@ -36,6 +36,31 @@ class MainViewController: NSSplitViewController {
             }
         }
 
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("BepisLoader.SteamacProtonPrefixUpdated"),
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let userInfo = note.userInfo,
+                  let appId = userInfo["appId"] as? UInt32,
+                  let prefix = userInfo["prefix"] as? String else { return }
+            guard let self = self else { return }
+            var changed = false
+            for i in self.gameListVC.allGames.indices {
+                if self.gameListVC.allGames[i].backing.steamAppId == appId {
+                    let updated = self.gameListVC.allGames[i].updatingProtonPrefix(prefix)
+                    self.gameListVC.allGames[i] = updated
+                    if self.detailVC.game?.id == updated.id {
+                        self.detailVC.game = updated
+                    }
+                    changed = true
+                }
+            }
+            if changed {
+                PersistenceManager.shared.save(games: self.gameListVC.allGames)
+            }
+        }
+
         let leftItem   = NSSplitViewItem(viewController: bottleListVC)
         leftItem.minimumThickness  = 180
         leftItem.maximumThickness  = 260
@@ -99,6 +124,7 @@ class BottleListViewController: NSViewController, NSTableViewDataSource, NSTable
     private let tableView = NSTableView()
     private let scrollView = NSScrollView()
     private let scanButton = NSButton()
+    private let steamacButton = NSButton()
     private let header = NSTextField(labelWithString: "BOTTLES")
 
     override func loadView() {
@@ -128,6 +154,15 @@ class BottleListViewController: NSViewController, NSTableViewDataSource, NSTable
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(scrollView)
 
+        // Steamac Cockpit button
+        steamacButton.title = "🐸 Steamac"
+        steamacButton.bezelStyle = .rounded
+        steamacButton.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        steamacButton.target = NSApp.delegate
+        steamacButton.action = Selector(("openSteamacCockpit:"))
+        steamacButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(steamacButton)
+
         // Scan button
         scanButton.title  = "↺  Scan"
         scanButton.bezelStyle = .rounded
@@ -144,7 +179,11 @@ class BottleListViewController: NSViewController, NSTableViewDataSource, NSTable
             scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: scanButton.topAnchor, constant: -8),
+            scrollView.bottomAnchor.constraint(equalTo: steamacButton.topAnchor, constant: -8),
+
+            steamacButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
+            steamacButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            steamacButton.bottomAnchor.constraint(equalTo: scanButton.topAnchor, constant: -6),
 
             scanButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
             scanButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
