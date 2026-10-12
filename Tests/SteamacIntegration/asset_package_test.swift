@@ -49,6 +49,12 @@ import Foundation
         try fm.removeItem(at: music.appendingPathComponent("Track name.hca"))
         let volumeOnly = try AssetModPackage.inspect(folder: root, appId: 1984270)
         precondition(volumeOnly.files.count == 1 && volumeOnly.files["Ryo/Digimon Story Time Stranger/bgm/bgm801.acb/bgm801.cue/Track name.yaml"] == Data("volume: 0.3".utf8), "Settings-only overlays must retain exact YAML keys and bytes")
+        try fm.removeItem(at: root.appendingPathComponent("Ryo/Digimon Story Time Stranger/bgm"))
+        let directAcb = root.appendingPathComponent("Ryo/Digimon Story Time Stranger/bgm801.acb/bgm801.cue")
+        try fm.createDirectory(at: directAcb, withIntermediateDirectories: true)
+        try Data([4,5,6]).write(to: directAcb.appendingPathComponent("Track direct.hca"))
+        let directAudio = try AssetModPackage.inspect(folder: root, appId: 1984270)
+        precondition(directAudio.files.count == 1 && directAudio.files["Ryo/Digimon Story Time Stranger/bgm/bgm801.acb/bgm801.cue/Track direct.hca"] == Data([4,5,6]), "Direct ACB folder layout must normalize to bgm/ prefix for Steamac compiler")
         config["ModDependencies"] = ["unknown-code-loader"]; try save(); reject()
         print("PASS: exact IMG filenames, distinct IMG/DDS filenames, raw IMG bytes, valid DDS, manifest, unsupported game, code payload, unknown dependency, wrong game, symlink, arbitrary extensions, empty asset rejection, immutable snapshot")
     }

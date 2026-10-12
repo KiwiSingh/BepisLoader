@@ -61,7 +61,7 @@ struct AssetModPackage {
         let loose = root.appendingPathComponent("dsts-loader", isDirectory: true)
         var roots: [(URL, String)] = []
         if fm.fileExists(atPath: loose.path) { roots.append((loose, "")) }
-        if hasAudio { roots.append((audioRoot, hasBgmSubdir ? "Ryo/Digimon Story Time Stranger/bgm/" : "Ryo/Digimon Story Time Stranger/")) }
+        if hasAudio { roots.append((audioRoot, "Ryo/Digimon Story Time Stranger/bgm/")) }
         guard !roots.isEmpty else { throw failure("No supported asset or music folder was found.") }
         var files: [String: Data] = [:], seen = Set<String>(), total = 0
         var entries = 0

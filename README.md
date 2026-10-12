@@ -2,9 +2,9 @@
 
 ![BepisLoader Logo](BepisLogo.png)
 
-**BepisLoader 2.3.2** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
+**BepisLoader 2.3.3** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
 
-[Download BepisLoader 2.3.2](https://github.com/KiwiSingh/BepisLoader/releases/tag/v2.3.2) · [All releases](https://github.com/KiwiSingh/BepisLoader/releases)
+[Download BepisLoader 2.3.3](https://github.com/KiwiSingh/BepisLoader/releases/tag/v2.3.3) · [All releases](https://github.com/KiwiSingh/BepisLoader/releases)
 
 ---
 
@@ -26,9 +26,11 @@
 
 ---
 
-## What's new? (v2.3.2)
+## What's new? (v2.3.3)
 
-2.3.2 bakes in dependency support for **Ryo Framework** (`DSTS.RyoFramework`, `Ryo.Reloaded`, `SharedScans.Reloaded`) and **DSTS Mod Tools** (`DSTS.ModTools`, `DSTS.ModLoader`) into BepisLoader's asset mod adapter. It also adds flexible folder fallback handling for audio/BGM mods, allowing ACB replacements located either within `Ryo/Digimon Story Time Stranger/bgm/` or directly under `Ryo/Digimon Story Time Stranger/*.acb`.
+2.3.3 fixes an audio-bank layout incompatibility where music mods with direct ACB folders under `Ryo/Digimon Story Time Stranger/` (such as *Hololive Covered by Hololive Randomizer*) had their tracks skipped during compilation. Audio paths are now normalized to the `Ryo/Digimon Story Time Stranger/bgm/` hierarchy expected by Steamac's guest compiler, ensuring all replacement HCA tracks and YAML volume settings are properly recognized and built into custom sound banks.
+
+2.3.2 baked in dependency support for **Ryo Framework** (`DSTS.RyoFramework`, `Ryo.Reloaded`, `SharedScans.Reloaded`) and **DSTS Mod Tools** (`DSTS.ModTools`, `DSTS.ModLoader`) into BepisLoader's asset mod adapter.
 
 2.3.1 adds automatic ReShade setup and a dedicated ReShade mod importer, ZIP/RAR/7z imports, 1 GiB mod/profile limits with 128 MiB files, guest-side profile composition and verified table/music reuse. Adding mods reads existing manifests before review. Pair it with [Steamac Kiwi Build 8](https://github.com/KiwiSingh/steamac/releases/tag/v1.7.6-kiwi.8) and restart its VM. Steam launch options remain a manual one-time step: copy the combined setting BepisLoader presents, preserving other environment settings and arguments. The app-bundle audit passed.
 
@@ -140,6 +142,10 @@ The resulting `BepisLoader.app` will be in `.build/release/`.
 ---
 
 ## 📝 Changelog
+
+### v2.3.3
+
+- Normalized audio-bank asset keying: Audio files with direct ACB layouts (without a `bgm/` subfolder) now map to `Ryo/Digimon Story Time Stranger/bgm/`, allowing Steamac's guest audio compiler to recognize and build replacement banks.
 
 ### v2.3.2
 
