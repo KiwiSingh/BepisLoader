@@ -100,7 +100,7 @@ enum AssetModProfiles {
     }
     static func apply(_ profile: AssetModProfile, merge: AssetProfileMerge, game: SteamacGame,
                       endpoint: SteamacBridgeEndpoint, bridge: SteamacBridge = .shared, reshade: Bool = false, existingOverrides: String = "") throws -> String {
-        if merge.package.files.keys.contains(where: { $0.hasPrefix("Ryo/Digimon Story Time Stranger/bgm/") }),
+        if merge.package.files.keys.contains(where: { $0.hasPrefix("Ryo/Digimon Story Time Stranger/") }),
            !(try bridge.handshake(endpoint: endpoint).capabilities.supports(.assetAudioBanksV1)) {
             throw AssetModPackage.failure("These mods require music-bank compilation. Update Steamac, restart its VM, then refresh the connection.")
         }

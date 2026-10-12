@@ -47,9 +47,13 @@ struct AssetModPackage {
         }
         guard info["ModDependencies"] == nil || info["ModDependencies"] is [String] else { throw failure("Invalid mod dependency metadata.") }
         let dependencies = info["ModDependencies"] as? [String] ?? []
-        let audioRoot = root.appendingPathComponent("Ryo/Digimon Story Time Stranger/bgm", isDirectory: true)
-        let hasAudio = fm.fileExists(atPath: audioRoot.path)
-        var assetDependencies: Set<String> = ["DSTS.ModLoader", "MVGL.FileLoader.Reloaded", "Reloaded.Memory.SigScan.ReloadedII", "reloaded.sharedlib.hooks"]
+        let dstsRyoRoot = root.appendingPathComponent("Ryo/Digimon Story Time Stranger", isDirectory: true)
+        let bgmSubdir = dstsRyoRoot.appendingPathComponent("bgm", isDirectory: true)
+        let hasBgmSubdir = fm.fileExists(atPath: bgmSubdir.path)
+        let hasDstsRyo = fm.fileExists(atPath: dstsRyoRoot.path)
+        let audioRoot = hasBgmSubdir ? bgmSubdir : dstsRyoRoot
+        let hasAudio = hasDstsRyo
+        var assetDependencies: Set<String> = ["DSTS.ModLoader", "DSTS.ModTools", "MVGL.FileLoader.Reloaded", "Reloaded.Memory.SigScan.ReloadedII", "reloaded.sharedlib.hooks"]
         if hasAudio { assetDependencies.formUnion(["DSTS.RyoFramework", "Ryo.Reloaded", "SharedScans.Reloaded"]) }
         guard dependencies.allSatisfy({ assetDependencies.contains($0) }), info["IsLibrary"] as? Bool != true else {
             throw failure("This mod requires a dependency that the asset adapter cannot provide.")
@@ -57,7 +61,7 @@ struct AssetModPackage {
         let loose = root.appendingPathComponent("dsts-loader", isDirectory: true)
         var roots: [(URL, String)] = []
         if fm.fileExists(atPath: loose.path) { roots.append((loose, "")) }
-        if hasAudio { roots.append((audioRoot, "Ryo/Digimon Story Time Stranger/bgm/")) }
+        if hasAudio { roots.append((audioRoot, hasBgmSubdir ? "Ryo/Digimon Story Time Stranger/bgm/" : "Ryo/Digimon Story Time Stranger/")) }
         guard !roots.isEmpty else { throw failure("No supported asset or music folder was found.") }
         var files: [String: Data] = [:], seen = Set<String>(), total = 0
         var entries = 0
