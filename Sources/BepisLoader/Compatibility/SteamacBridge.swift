@@ -61,11 +61,11 @@ struct SteamacBridgeHandshake:
     var isKiwiSinghSteamac:
         Bool
     {
-        implementation
-            .caseInsensitiveCompare(
-                "KiwiSingh/steamac"
-            )
-            == .orderedSame
+        let lower = implementation.lowercased()
+        return lower == "kiwisingh/steamac"
+            || lower.hasPrefix("kiwisingh/steamac")
+            || lower == "fxgl/steamac"
+            || lower.hasPrefix("fxgl/steamac")
     }
 }
 
