@@ -4,9 +4,9 @@
 
 ![BepisLoader Logo](BepisLogo.png)
 
-**BepisLoader 2.3.4** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
+**BepisLoader 2.3.5** is a native macOS mod-management application with a framework-agnostic architecture supporting BepInEx workflows and expanding toward Reloaded-II. It installs and manages mods for Windows games running through compatibility layers and integrates with Steamac for SteamOS VM workflows. It is specifically designed to handle the complexities of macOS compatibility layers like **CrossOver**, **CrossOver Preview**, **Whisky**, **GameHub**, **Wineskin**, and **Porting Kit**.
 
-[Download BepisLoader 2.3.4](https://github.com/KiwiSingh/BepisLoader/releases/tag/v2.3.4) · [All releases](https://github.com/KiwiSingh/BepisLoader/releases)
+[Download BepisLoader 2.3.5](https://github.com/KiwiSingh/BepisLoader/releases/tag/v2.3.5) · [All releases](https://github.com/KiwiSingh/BepisLoader/releases)
 
 ---
 
@@ -28,14 +28,14 @@
 
 ---
 
-## What's new? (v2.3.4)
+## What's new? (v2.3.5)
 
-2.3.4 introduces seamless launcher handoff and enhanced Steamac integration:
+2.3.5 introduces full compatibility with Steamac 1.9 and streamlined launcher handoff:
+- **Steamac 1.9 Compatibility**: The guest handshake now recognizes and pairs seamlessly with Steamac 1.9 (`v1.9-kiwi.1` and upstream `fxgl/steamac`), preventing version mismatch rejection.
 - **Steamac Window Focus**: When launching games via the Steamac Cockpit ("Launch via Steamac"), window focus is now reliably handed off to FX Steam Launcher (Steamac) without being re-stolen by BepisLoader.
 - **Proton Prefix Rediscovery**: Added dedicated **Rediscover Active Prefix** functionality to synchronize and refresh Proton prefix paths and active runtimes with BepisLoader mod management on demand.
 - **Updated Cockpit Diagnostics**: Reflects verified modded launch readiness (`Modded launch: Available`) when connected to the Steamac guest bridge.
 - **Steamac Navigation**: Added a quick-access **🐸 Steamac** Cockpit button to the main sidebar for instant navigation to the Steamac management cockpit.
-- **Steamac 1.9 Compatibility**: The guest handshake now recognizes and pairs seamlessly with Steamac 1.9 (`v1.9-kiwi.1` and upstream `fxgl/steamac`).
 
 2.3.3 fixes an audio-bank layout incompatibility where music mods with direct ACB folders under `Ryo/Digimon Story Time Stranger/` (such as *Hololive Covered by Hololive Randomizer*) had their tracks skipped during compilation. Audio paths are now normalized to the `Ryo/Digimon Story Time Stranger/bgm/` hierarchy expected by Steamac's guest compiler, ensuring all replacement HCA tracks and YAML volume settings are properly recognized and built into custom sound banks.
 
@@ -109,7 +109,7 @@ Full Reloaded-II / managed-plugin initialization under ARM64 Proton remains unre
 
 ## 🛠 Installation & Usage
 
-1. **Download**: Download and extract [BepisLoader-v2.3.4-macOS-universal.zip](https://github.com/KiwiSingh/BepisLoader/releases/download/v2.3.4/BepisLoader-v2.3.4-macOS-universal.zip).
+1. **Download**: Download and extract [BepisLoader-v2.3.5-macOS-universal.zip](https://github.com/KiwiSingh/BepisLoader/releases/download/v2.3.5/BepisLoader-v2.3.5-macOS-universal.zip).
 2. **Select Game**: The app will scan your bottles automatically. If your game is on an external drive, use the **"+ Add Game → From Mac / External Drive"** option.
 3. **Install**: Click **"Install BepisLoader"**. It will download the correct BepInEx version, configure your Wine registry, and patch your compatibility layer's config files.
 4. **Add Mods**: Use **"+ Add Mod…"** to install `.dll` plugin files into the game's `BepInEx/plugins/` folder.
@@ -152,13 +152,19 @@ The resulting `BepisLoader.app` will be in `.build/release/`.
 
 ## 📝 Changelog
 
+### v2.3.5
+
+- **Steamac 1.9 Compatibility**: Expanded guest bridge handshake to recognize and pair with Steamac 1.9 (`v1.9-kiwi.1` and upstream `fxgl/steamac`).
+- **Steamac Window Focus**: Fixed window focus handoff to FX Steam Launcher (Steamac) when launching from Cockpit.
+- **Proton Prefix Rediscovery**: Added dedicated button to rediscover and refresh active Proton prefixes on demand.
+- **Cockpit Diagnostics & Navigation**: Verified launch status indication and quick sidebar navigation to Steamac Cockpit.
+
 ### v2.3.4
 
 - **Steamac Window Focus**: When launching games via the Steamac Cockpit ("Launch via Steamac"), window focus is now reliably handed off to FX Steam Launcher (Steamac) without being re-stolen by BepisLoader.
 - **Proton Prefix Rediscovery**: Added dedicated **Rediscover Active Prefix** functionality to synchronize and refresh Proton prefix paths and active runtimes with BepisLoader mod management on demand.
 - **Updated Cockpit Diagnostics**: Reflects verified modded launch readiness (`Modded launch: Available`) when connected to the Steamac guest bridge.
 - **Steamac Navigation**: Added a quick-access **🐸 Steamac** Cockpit button to the main sidebar for instant navigation to the Steamac management cockpit.
-- **Steamac 1.9 Handshake Compatibility**: Handshake now recognizes and accepts Steamac 1.9 (`v1.9-kiwi.1` and upstream `fxgl/steamac`).
 
 ### v2.3.3
 
