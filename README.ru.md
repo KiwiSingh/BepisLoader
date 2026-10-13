@@ -1,6 +1,6 @@
 # 🥤 BepisLoader
 
-[English](README.md) · **Русский**
+[English](README.md) · **Русский** · [हिंदी](README.hi.md)
 
 ![BepisLoader Logo](BepisLogo.png)
 
